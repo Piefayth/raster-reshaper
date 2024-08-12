@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Instant};
+use std::{borrow::Cow, num::NonZero, time::Instant};
 
 use bevy::{
     app::{App, Startup},
@@ -8,15 +8,7 @@ use bevy::{
     render::{
         render_asset::RenderAssetUsages,
         render_resource::{
-            BlendState, Buffer, BufferAddress, BufferDescriptor, BufferUsages, ColorTargetState,
-            ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer,
-            ImageCopyTextureBase, ImageDataLayout, LoadOp, Maintain, MapMode,
-            MultisampleState, Operations, Origin3d, PipelineCompilationOptions,
-            PipelineLayoutDescriptor, PrimitiveState, RawFragmentState,
-            RawRenderPipelineDescriptor, RawVertexState, RenderPassColorAttachment,
-            RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, Source,
-            StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureUsages, TextureView,
+            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -48,7 +40,10 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(Update, (on_new_pipeline).run_if(in_state(GameState::DoSomethingElse)))
+        .add_systems(
+            Update,
+            (on_new_pipeline).run_if(in_state(GameState::DoSomethingElse)),
+        )
         .run();
 }
 
@@ -78,10 +73,7 @@ fn done_processsing_assets(mut next_state: ResMut<NextState<GameState>>) {
     next_state.set(GameState::DoSomethingElse);
 }
 
-fn setup_scene(
-    mut commands: Commands,
-    mut windows: Query<&mut Window>,
-) {
+fn setup_scene(mut commands: Commands, mut windows: Query<&mut Window>) {
     let mut window = windows.single_mut();
     window.present_mode = PresentMode::Immediate;
 
@@ -94,6 +86,7 @@ const U32_SIZE: u32 = std::mem::size_of::<u32>() as u32;
 struct PipelineNode {
     render_pipeline: Box<RenderPipeline>,
     texture_view: Box<TextureView>,
+    bind_group: BindGroup, // todo: just one?
     texture: Texture,
     output_buffer: Buffer,
     texture_extents: Extent3d,
@@ -119,9 +112,41 @@ impl PipelineNode {
             source: ShaderSource::Wgsl(Cow::Borrowed(vert_source)),
         });
 
+        let color_bind_group_layout = render_device.create_bind_group_layout(
+            "color bind group layout",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        );
+
+        let color_data: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
+        let color_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Color Buffer"),
+            contents: bytemuck::cast_slice(&color_data),
+            usage: BufferUsages::UNIFORM
+        });
+
+        let color_bind_group = render_device.create_bind_group("color bind group", &color_bind_group_layout, &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(BufferBinding {
+                    buffer: &color_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+        ]);
+
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&color_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -191,6 +216,8 @@ impl PipelineNode {
             multiview: None,
         });
 
+
+
         PipelineNode {
             render_pipeline: Box::new(render_pipeline),
             texture_view: Box::new(texture_view),
@@ -199,6 +226,7 @@ impl PipelineNode {
             output_buffer,
             texture_format,
             output_image: None,
+            bind_group: color_bind_group,
         }
     }
 }
@@ -232,8 +260,9 @@ fn on_new_pipeline(
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-    
+
             render_pass.set_pipeline(&new_pipeline.render_pipeline);
+            render_pass.set_bind_group(0, &new_pipeline.bind_group, &[]);  // HACK/TODO: this is going to depend on the type of the node
             render_pass.draw(0..3, 0..1);
         }
 
@@ -254,7 +283,7 @@ fn on_new_pipeline(
             },
             new_pipeline.texture_extents,
         );
-    
+
         render_queue.submit(Some(encoder.finish()));
 
         println!(
@@ -264,9 +293,9 @@ fn on_new_pipeline(
 
         let image = {
             let buffer_slice = &new_pipeline.output_buffer.slice(..);
-    
+
             let (s, r) = crossbeam_channel::unbounded::<()>();
-    
+
             buffer_slice.map_async(MapMode::Read, move |r| match r {
                 Ok(_) => {
                     println!(
@@ -274,12 +303,12 @@ fn on_new_pipeline(
                         start.elapsed()
                     );
                     s.send(()).expect("Failed to send map update");
-                },
+                }
                 Err(err) => panic!("Failed to map buffer {err}"),
             });
-    
+
             render_device.poll(Maintain::wait()).panic_on_timeout();
-            
+
             println!(
                 "AFTER polling Time elapsed in example_function() is: {:?}",
                 start.elapsed()
@@ -301,9 +330,8 @@ fn on_new_pipeline(
         let image_handle = images.add(image);
         new_pipeline.output_image = Some(image_handle.clone());
 
-                    
         new_pipeline.output_buffer.unmap();
-            
+
         println!(
             "Time elapsed in example_function() is: {:?}",
             start.elapsed()

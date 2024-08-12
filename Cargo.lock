@@ -3208,6 +3208,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_asset_loader",
+ "bytemuck",
  "crossbeam-channel",
 ]
 
