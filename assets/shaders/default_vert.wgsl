@@ -1,11 +1,17 @@
-@vertex
-fn vertex(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
-    var positions = array<vec2<f32>, 3>(
-        vec2<f32>(0.0, 0.5),
-        vec2<f32>(-0.5, -0.5),
-        vec2<f32>(0.5, -0.5)
-    );
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec3<f32>,
+};
 
-    let position = positions[vertexIndex];
-    return vec4<f32>(position, 0.0, 1.0);
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+};
+
+@vertex
+fn vertex(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.color = in.color;
+    out.clip_position = vec4<f32>(in.position, 1.0);
+    return out;
 }

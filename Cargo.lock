@@ -3210,6 +3210,7 @@ dependencies = [
  "bevy_asset_loader",
  "bytemuck",
  "crossbeam-channel",
+ "petgraph",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ bevy-inspector-egui = "0.25.2"
 bevy_asset_loader = "0.21.0"
 bytemuck = "1.16.3"
 crossbeam-channel = "0.5.13"
+petgraph = "0.6.5"
 
 [features]
 dev = [

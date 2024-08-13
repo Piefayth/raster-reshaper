@@ -8,7 +8,7 @@ use bevy::{
     render::{
         render_asset::RenderAssetUsages,
         render_resource::{
-            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView
+            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, VertexAttribute, VertexFormat, VertexStepMode
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -20,6 +20,7 @@ use bevy_asset_loader::{
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use petgraph::{graph::DiGraph, Direction};
 
 fn main() {
     App::new()
@@ -42,7 +43,7 @@ fn main() {
         )
         .add_systems(
             Update,
-            (on_new_pipeline).run_if(in_state(GameState::DoSomethingElse)),
+            (on_changed_pipeline).run_if(in_state(GameState::DoSomethingElse)),
         )
         .run();
 }
@@ -82,26 +83,49 @@ fn setup_scene(mut commands: Commands, mut windows: Query<&mut Window>) {
 
 const U32_SIZE: u32 = std::mem::size_of::<u32>() as u32;
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+
+
+enum NodeKind {
+    EXAMPLE(ExampleNode),
+}
+
 #[derive(Component)]
-struct PipelineNode {
+struct Node {
+    kind: NodeKind,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct DisjointPipelineGraph(DiGraph<Node, ()>);
+
+struct ExampleNode {
     render_pipeline: Box<RenderPipeline>,
     texture_view: Box<TextureView>,
     bind_group: BindGroup, // todo: just one?
-    texture: Texture,
+    texture: Texture,      // the...storage texture? that we have a view into? for the output?
     output_buffer: Buffer,
-    texture_extents: Extent3d,
-    texture_format: TextureFormat,
+    vertex_buffer: Buffer, // not every node is gonna have this, e.g. raster node
+    index_buffer: Buffer,
+    num_vertices: u32,  // same
+    texture_extents: Extent3d, // OUTPUT extents?
+    texture_format: TextureFormat, // OUTPUT format?
     output_image: Option<Handle<Image>>,
 }
 
-impl PipelineNode {
+impl ExampleNode {
     fn new(
         render_device: &RenderDevice,
         fragment_source: &Cow<'static, str>,
         vert_source: &Cow<'static, str>,
         texture_size: u32,
         texture_format: TextureFormat,
-    ) -> PipelineNode {
+    ) -> ExampleNode {
         let frag_shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
             label: Some("Default Frag Shader Module?"),
             source: ShaderSource::Wgsl(Cow::Borrowed(fragment_source)),
@@ -111,6 +135,53 @@ impl PipelineNode {
             label: Some("Default Vert Shader Module?"),
             source: ShaderSource::Wgsl(Cow::Borrowed(vert_source)),
         });
+
+        let vertices = &[
+            Vertex {
+                position: [0.0, 0.5, 0.0],
+                color: [1.0, 0.0, 0.0],
+            },
+            Vertex {
+                position: [-0.5, -0.5, 0.0],
+                color: [0.0, 1.0, 0.0],
+            },
+            Vertex {
+                position: [0.5, -0.5, 0.0],
+                color: [0.0, 0.0, 1.0],
+            },
+        ];
+
+        let indices = &[
+            0, 1, 4,
+            1, 2, 4,
+            2, 3, 4,
+        ];
+
+        let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(vertices),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let index_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: BufferUsages::INDEX
+        });
+
+        let vertex_buffer_layout = RawVertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: VertexFormat::Float32x3,
+            }, VertexAttribute {
+                offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                shader_location: 1,
+                format: VertexFormat::Float32x3,
+            }],
+        };
 
         let color_bind_group_layout = render_device.create_bind_group_layout(
             "color bind group layout",
@@ -130,19 +201,21 @@ impl PipelineNode {
         let color_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Color Buffer"),
             contents: bytemuck::cast_slice(&color_data),
-            usage: BufferUsages::UNIFORM
+            usage: BufferUsages::UNIFORM,
         });
 
-        let color_bind_group = render_device.create_bind_group("color bind group", &color_bind_group_layout, &[
-            BindGroupEntry {
+        let color_bind_group = render_device.create_bind_group(
+            "color bind group",
+            &color_bind_group_layout,
+            &[BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(BufferBinding {
                     buffer: &color_buffer,
                     offset: 0,
                     size: None,
                 }),
-            },
-        ]);
+            }],
+        );
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
@@ -185,7 +258,7 @@ impl PipelineNode {
             vertex: RawVertexState {
                 module: &vert_shader_module,
                 entry_point: "vertex",
-                buffers: &[],
+                buffers: &[vertex_buffer_layout],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(RawFragmentState {
@@ -216,13 +289,14 @@ impl PipelineNode {
             multiview: None,
         });
 
-
-
-        PipelineNode {
+        ExampleNode {
             render_pipeline: Box::new(render_pipeline),
             texture_view: Box::new(texture_view),
             texture,
             texture_extents,
+            vertex_buffer,
+            index_buffer,
+            num_vertices: vertices.len() as u32,
             output_buffer,
             texture_format,
             output_image: None,
@@ -231,116 +305,145 @@ impl PipelineNode {
     }
 }
 
-fn on_new_pipeline(
+fn update_node_sprites() {
+    // when results come back from the task...
+    // ... update the node sprites
+    // so easy...
+    // sigh
+}
+
+fn on_changed_pipeline(
     mut commands: Commands,
-    mut q_new_pipeline: Query<&mut PipelineNode, Added<PipelineNode>>,
+    mut q_changed_pipeline: Query<&mut DisjointPipelineGraph, Changed<DisjointPipelineGraph>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    if q_changed_pipeline.is_empty() {
+        return;
+    }
+
+    // instead of running here, we want to kick everything to an async compute thread
+    // hmm
+    // we are going to give the thread a copy of the graph which it can then mutate to consume as it finishes
+    // then it will keep a list of outputs that we suck up and distribute
+    // but you can't just remove the nodes because the downstream dependencies need fulfilled
+    // big yikes
+
     let start = Instant::now();
+    
+    let mut changed_pipeline = q_changed_pipeline.single_mut();
+    let source_indices: Vec<_> = changed_pipeline.externals(Direction::Incoming).collect();
 
-    for mut new_pipeline in q_new_pipeline.iter_mut() {
-        let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Command Encoder Descriptor"),
-        });
+    for node_index in source_indices {
+        let node = changed_pipeline.node_weight_mut(node_index).unwrap();
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &new_pipeline.texture_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(LinearRgba::rgb(0.1, 0.2, 0.3).into()),
-                        store: StoreOp::Store,
+        match &mut node.kind {
+            NodeKind::EXAMPLE(example_node) => {
+                let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Command Encoder Descriptor"),
+                });
+            
+                {
+                    let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                        label: Some("Render Pass"),
+                        color_attachments: &[Some(RenderPassColorAttachment {
+                            view: &example_node.texture_view,
+                            resolve_target: None,
+                            ops: Operations {
+                                load: LoadOp::Clear(LinearRgba::rgb(0.1, 0.2, 0.3).into()),
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+            
+                    render_pass.set_pipeline(&example_node.render_pipeline);
+                    render_pass.set_vertex_buffer(0, *example_node.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(*example_node.index_buffer.slice(..), IndexFormat::Uint16);
+                    render_pass.set_bind_group(0, &example_node.bind_group, &[]); // HACK/TODO: this is going to depend on the type of the node
+                    render_pass.draw(0..example_node.num_vertices, 0..1);
+                }
+            
+                encoder.copy_texture_to_buffer(
+                    ImageCopyTextureBase {
+                        aspect: TextureAspect::All,
+                        texture: &example_node.texture,
+                        mip_level: 0,
+                        origin: Origin3d::ZERO,
                     },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            render_pass.set_pipeline(&new_pipeline.render_pipeline);
-            render_pass.set_bind_group(0, &new_pipeline.bind_group, &[]);  // HACK/TODO: this is going to depend on the type of the node
-            render_pass.draw(0..3, 0..1);
-        }
-
-        encoder.copy_texture_to_buffer(
-            ImageCopyTextureBase {
-                aspect: TextureAspect::All,
-                texture: &new_pipeline.texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-            },
-            ImageCopyBuffer {
-                buffer: &new_pipeline.output_buffer,
-                layout: ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(U32_SIZE * new_pipeline.texture_extents.width), // todo: width prob wrong here - what happens if aspect ratio != 1?
-                    rows_per_image: Some(new_pipeline.texture_extents.width), // todo: width prob wrong here too
-                },
-            },
-            new_pipeline.texture_extents,
-        );
-
-        render_queue.submit(Some(encoder.finish()));
-
-        println!(
-            "Time elapsed in example_function() is: {:?}",
-            start.elapsed()
-        );
-
-        let image = {
-            let buffer_slice = &new_pipeline.output_buffer.slice(..);
-
-            let (s, r) = crossbeam_channel::unbounded::<()>();
-
-            buffer_slice.map_async(MapMode::Read, move |r| match r {
-                Ok(_) => {
+                    ImageCopyBuffer {
+                        buffer: &example_node.output_buffer,
+                        layout: ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(U32_SIZE * example_node.texture_extents.width), // todo: width prob wrong here - what happens if aspect ratio != 1?
+                            rows_per_image: Some(example_node.texture_extents.width), // todo: width prob wrong here too
+                        },
+                    },
+                    example_node.texture_extents,
+                );
+            
+                render_queue.submit(Some(encoder.finish()));
+            
+                println!(
+                    "Time elapsed in example_function() is: {:?}",
+                    start.elapsed()
+                );
+            
+                let image = {
+                    let buffer_slice = &example_node.output_buffer.slice(..);
+            
+                    let (s, r) = crossbeam_channel::unbounded::<()>();
+            
+                    buffer_slice.map_async(MapMode::Read, move |r| match r {
+                        Ok(_) => {
+                            println!(
+                                "asdfasdf asdf asTime elapsed in example_function() is: {:?}",
+                                start.elapsed()
+                            );
+                            s.send(()).expect("Failed to send map update");
+                        }
+                        Err(err) => panic!("Failed to map buffer {err}"),
+                    });
+            
+                    render_device.poll(Maintain::wait()).panic_on_timeout();
+            
                     println!(
-                        "asdfasdf asdf asTime elapsed in example_function() is: {:?}",
+                        "AFTER polling Time elapsed in example_function() is: {:?}",
                         start.elapsed()
                     );
-                    s.send(()).expect("Failed to send map update");
-                }
-                Err(err) => panic!("Failed to map buffer {err}"),
-            });
-
-            render_device.poll(Maintain::wait()).panic_on_timeout();
-
-            println!(
-                "AFTER polling Time elapsed in example_function() is: {:?}",
-                start.elapsed()
-            );
-
-            r.recv().expect("Failed to receive map_async message");
-
-            let buffer: &[u8] = &buffer_slice.get_mapped_range();
-
-            Image::new_fill(
-                new_pipeline.texture_extents,
-                TextureDimension::D2,
-                buffer,
-                new_pipeline.texture_format,
-                RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-            )
-        };
-
-        let image_handle = images.add(image);
-        new_pipeline.output_image = Some(image_handle.clone());
-
-        new_pipeline.output_buffer.unmap();
-
-        println!(
-            "Time elapsed in example_function() is: {:?}",
-            start.elapsed()
-        );
-
-        commands.spawn(SpriteBundle {
-            texture: image_handle.clone(),
-            ..default()
-        });
+            
+                    r.recv().expect("Failed to receive map_async message");
+            
+                    let buffer: &[u8] = &buffer_slice.get_mapped_range();
+            
+                    Image::new_fill(
+                        example_node.texture_extents,
+                        TextureDimension::D2,
+                        buffer,
+                        example_node.texture_format,
+                        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+                    )
+                };
+            
+                let image_handle = images.add(image);
+                example_node.output_image = Some(image_handle.clone());
+            
+                example_node.output_buffer.unmap();
+            
+                println!(
+                    "Time elapsed in example_function() is: {:?}",
+                    start.elapsed()
+                );
+            
+                commands.spawn(SpriteBundle {
+                    texture: image_handle.clone(),
+                    ..default()
+                });
+            },
+        }
     }
 }
 
@@ -363,7 +466,7 @@ fn spawn_initial_node(
         _ => panic!("Only WGSL supported"),
     };
 
-    let pipeline_node = PipelineNode::new(
+    let pipeline_node = ExampleNode::new(
         &render_device,
         frag_wgsl_source,
         vert_wgsl_source,
@@ -371,5 +474,10 @@ fn spawn_initial_node(
         TextureFormat::Rgba8Unorm,
     );
 
-    commands.spawn(pipeline_node);
+    let mut graph = DiGraph::<Node, ()>::new();
+    graph.add_node(Node {
+        kind: NodeKind::EXAMPLE(pipeline_node)
+    });
+
+    commands.spawn(DisjointPipelineGraph(graph));
 }
