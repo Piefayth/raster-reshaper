@@ -1,5 +1,6 @@
 use std::{borrow::Cow, time::Instant};
 
+use asset::ShaderAssets;
 use bevy::{
     app::{App}, asset::{Assets, Handle}, color::LinearRgba, ecs::system::SystemChangeTick, prelude::*, render::{
         render_asset::RenderAssetUsages,
@@ -18,26 +19,17 @@ use nodes::{example::{ExampleNode, ExampleNodeInputs, ExampleNodeOutputs}, NodeD
 use petgraph::{graph::{DiGraph, NodeIndex}, visit::IntoNodeReferences, Direction};
 
 mod nodes;
+mod asset;
+mod setup;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(asset::AssetPlugin)
+        .add_plugins(setup::SetupPlugin)
         //.add_plugins(WorldInspectorPlugin::new())
         .init_state::<GameState>()
-        .add_loading_state(
-            LoadingState::new(GameState::AssetLoading)
-                .continue_to_state(GameState::AssetProcessing)
-                .load_collection::<ShaderAssets>()
-                .load_collection::<ImageAssets>(),
-        )
-        .add_systems(
-            OnEnter(GameState::AssetProcessing),
-            (
-                (spawn_initial_node, setup_scene).chain(),
-                done_processsing_assets,
-            )
-                .chain(),
-        )
+
         .add_systems(
             Update,
             (((on_changed_pipeline, poll_processed_pipeline), update_nodes).chain()).run_if(in_state(GameState::DoSomethingElse)),
@@ -45,38 +37,17 @@ fn main() {
         .run();
 }
 
-#[derive(AssetCollection, Resource)]
-struct ShaderAssets {
-    #[asset(path = "shaders/default_frag.wgsl")]
-    default_frag: Handle<Shader>,
-    #[asset(path = "shaders/default_vert.wgsl")]
-    default_vert: Handle<Shader>,
-}
 
-#[derive(AssetCollection, Resource)]
-struct ImageAssets {
-    #[asset(path = "images/sp.png")]
-    sp: Handle<Image>,
-}
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 enum GameState {
     #[default]
     AssetLoading,
     AssetProcessing,
+    Setup,
     DoSomethingElse,
 }
 
-fn done_processsing_assets(mut next_state: ResMut<NextState<GameState>>) {
-    next_state.set(GameState::DoSomethingElse);
-}
-
-fn setup_scene(mut commands: Commands, mut windows: Query<&mut Window>) {
-    let mut window = windows.single_mut();
-    window.present_mode = PresentMode::Immediate;
-
-    commands.spawn(Camera2dBundle::default());
-}
 
 const U32_SIZE: u32 = std::mem::size_of::<u32>() as u32;
 
@@ -119,6 +90,7 @@ fn update_nodes(
     if q_changed_pipeline.is_empty() {
         return
     }
+    
     let graph = &q_changed_pipeline.single().graph;
 
     for (idx, node_data) in graph.node_references() {
@@ -126,8 +98,8 @@ fn update_nodes(
         
         match probably_node {
             Ok((mut node, image_handle)) => {
-                node.index = idx;
-                // update the sprite image...
+                node.index = idx;   // The NodeIndex could've changed if the graph was modified.
+
                 let old_image = images.get_mut(image_handle.id()).expect("Found an image handle on a node sprite that does not reference a known image.");
                 match &node_data.kind {
                     NodeKind::Example(ex) => {
@@ -208,20 +180,11 @@ fn on_changed_pipeline(
     let render_queue = render_queue.clone();
 
     let task = thread_pool.spawn(async move {
-        let start = Instant::now();
-
         let source_indices: Vec<_> = changed_pipeline.graph.externals(Direction::Incoming).collect();
-
 
         for node_index in source_indices {
             let node = changed_pipeline.graph.node_weight_mut(node_index).unwrap();
             
-            // does anything stop us from creating a node.process function and calling it?....
-            // kinda yeah
-            // we want to queue it on the gpu...
-            // but it might just be like a basic color node or something that does not need queued
-            // also does not need processed...
-
             match &mut node.kind {
                 NodeKind::Example(example_node) => {
                     example_node.process(&device, &render_queue);
@@ -235,51 +198,3 @@ fn on_changed_pipeline(
     commands.spawn(PipelineProcessTask(task));
 }
 
-fn spawn_initial_node(
-    mut commands: Commands,
-    render_device: Res<RenderDevice>,
-    shader_handles: Res<ShaderAssets>,
-    shaders: Res<Assets<Shader>>,
-) {
-    let frag_shader = shaders.get(&shader_handles.default_frag).unwrap();
-    let vert_shader = shaders.get(&shader_handles.default_vert).unwrap();
-
-    let frag_wgsl_source = match &frag_shader.source {
-        Source::Wgsl(src) => src,
-        _ => panic!("Only WGSL supported"),
-    };
-
-    let vert_wgsl_source = match &vert_shader.source {
-        Source::Wgsl(src) => src,
-        _ => panic!("Only WGSL supported"),
-    };
-
-    let example_node_entity = commands.spawn(NodeDisplay).id();
-
-    let example_node = ExampleNode::new(
-        &render_device,
-        frag_wgsl_source,
-        vert_wgsl_source,
-        512u32,
-        TextureFormat::Rgba8Unorm,
-        example_node_entity,
-    );
-
-    let mut graph = DiGraph::<NodeData, ()>::new();
-
-
-    // next - refactor the example logic into example
-    // next - make a second kind of node and pray to god we can come up with a way to make an edge between them
-
-    let example_node_index = graph.add_node(example_node);
-
-    commands
-        .entity(example_node_entity)
-        .insert(nodes::Node { index: example_node_index });
-
-
-    commands.spawn(DisjointPipelineGraph {
-        graph,
-        dirty: true,
-    });
-}
