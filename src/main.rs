@@ -1,26 +1,23 @@
-use std::{borrow::Cow, num::NonZero, time::Instant};
+use std::{borrow::Cow, time::Instant};
 
 use bevy::{
-    app::{App, Startup},
-    asset::{Assets, Handle},
-    color::LinearRgba,
-    prelude::*,
-    render::{
+    app::{App}, asset::{Assets, Handle}, color::LinearRgba, ecs::system::SystemChangeTick, prelude::*, render::{
         render_asset::RenderAssetUsages,
         render_resource::{
-            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, VertexAttribute, VertexFormat, VertexStepMode
+            BindGroup, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, VertexAttribute, VertexFormat, VertexStepMode
         },
         renderer::{RenderDevice, RenderQueue},
-    },
-    window::PresentMode,
-    DefaultPlugins,
+    }, tasks::{block_on, poll_once, AsyncComputeTaskPool, Task}, utils::{hashbrown::HashMap}, window::PresentMode, DefaultPlugins
 };
 use bevy_asset_loader::{
     asset_collection::AssetCollection,
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use petgraph::{graph::DiGraph, Direction};
+use nodes::{example::{ExampleNode, ExampleNodeInputs, ExampleNodeOutputs}, NodeData, NodeKind};
+use petgraph::{graph::{DiGraph, NodeIndex}, visit::IntoNodeReferences, Direction};
+
+mod nodes;
 
 fn main() {
     App::new()
@@ -43,7 +40,7 @@ fn main() {
         )
         .add_systems(
             Update,
-            (on_changed_pipeline).run_if(in_state(GameState::DoSomethingElse)),
+            (((on_changed_pipeline, poll_processed_pipeline), update_nodes).chain()).run_if(in_state(GameState::DoSomethingElse)),
         )
         .run();
 }
@@ -90,361 +87,152 @@ struct Vertex {
     color: [f32; 3],
 }
 
+#[derive(Debug, Clone)]
+enum EdgeDataType {
+    Integer(i32),
+    Float(f32),
+    Boolean(bool),
+    Image(Option<Image>),
+    Extent3d(Extent3d),
+    TextureFormat(TextureFormat),
+}
 
-
-enum NodeKind {
-    EXAMPLE(ExampleNode),
+#[derive(Component, Clone)]
+struct DisjointPipelineGraph {
+    graph: DiGraph<NodeData, ()>,
+    dirty: bool,
 }
 
 #[derive(Component)]
-struct Node {
-    kind: NodeKind,
-}
+struct NodeDisplay;
 
-#[derive(Component, Deref, DerefMut)]
-struct DisjointPipelineGraph(DiGraph<Node, ()>);
+#[derive(Component, Deref)]
+struct PipelineProcessTask(Task<DiGraph<NodeData, ()>>);  // the update coming back could just be the preview image? or do we need to update the node?
 
-struct ExampleNode {
-    render_pipeline: Box<RenderPipeline>,
-    texture_view: Box<TextureView>,
-    bind_group: BindGroup, // todo: just one?
-    texture: Texture,      // the...storage texture? that we have a view into? for the output?
-    output_buffer: Buffer,
-    vertex_buffer: Buffer, // not every node is gonna have this, e.g. raster node
-    index_buffer: Buffer,
-    num_vertices: u32,  // same
-    texture_extents: Extent3d, // OUTPUT extents?
-    texture_format: TextureFormat, // OUTPUT format?
-    output_image: Option<Handle<Image>>,
-}
+fn update_nodes(
+    mut commands: Commands,
+    q_changed_pipeline: Query<&DisjointPipelineGraph, Changed<DisjointPipelineGraph>>,
+    mut q_initialized_nodes: Query<(&mut nodes::Node, &mut Handle<Image>), With<Sprite>>,
+    mut q_uninitialized_node: Query<&mut nodes::Node, Without<Sprite>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if q_changed_pipeline.is_empty() {
+        return
+    }
+    let graph = &q_changed_pipeline.single().graph;
 
-impl ExampleNode {
-    fn new(
-        render_device: &RenderDevice,
-        fragment_source: &Cow<'static, str>,
-        vert_source: &Cow<'static, str>,
-        texture_size: u32,
-        texture_format: TextureFormat,
-    ) -> ExampleNode {
-        let frag_shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("Default Frag Shader Module?"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(fragment_source)),
-        });
-
-        let vert_shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("Default Vert Shader Module?"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(vert_source)),
-        });
-
-        let vertices = &[
-            Vertex {
-                position: [0.0, 0.5, 0.0],
-                color: [1.0, 0.0, 0.0],
+    for (idx, node_data) in graph.node_references() {
+        let probably_node = q_initialized_nodes.get_mut(node_data.entity);
+        
+        match probably_node {
+            Ok((mut node, image_handle)) => {
+                node.index = idx;
+                // update the sprite image...
+                let old_image = images.get_mut(image_handle.id()).expect("Found an image handle on a node sprite that does not reference a known image.");
+                match &node_data.kind {
+                    NodeKind::Example(ex) => {
+                        let thing = ex.outputs.get(&ExampleNodeOutputs::Image).expect("Should've had an image output.");
+                        match thing {
+                            EdgeDataType::Image(maybe_image) => {
+                                if let Some(image) = maybe_image {
+                                    *old_image = image.clone();
+                                }
+                            },
+                            _ => panic!("")
+                        }
+                    },
+                }
             },
-            Vertex {
-                position: [-0.5, -0.5, 0.0],
-                color: [0.0, 1.0, 0.0],
+            Err(_) => {
+                let probably_uninit_node = q_uninitialized_node.get_mut(node_data.entity);
+                match probably_uninit_node {
+                    Ok(_) => {
+                        if let Some(output_texture) = node_data.output_texture() {
+                            commands.spawn(SpriteBundle {
+                                texture: images.add(output_texture),
+                                ..default()
+                            });
+                        }
+                    },
+                    Err(_) => panic!("You forgot to make an entity for a node, or despawned an entity without removing the same node from the graph."),
+                }
             },
-            Vertex {
-                position: [0.5, -0.5, 0.0],
-                color: [0.0, 0.0, 1.0],
-            },
-        ];
-
-        let indices = &[
-            0, 1, 4,
-            1, 2, 4,
-            2, 3, 4,
-        ];
-
-        let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(vertices),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let index_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(indices),
-            usage: BufferUsages::INDEX
-        });
-
-        let vertex_buffer_layout = RawVertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x3,
-            }, VertexAttribute {
-                offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
-                shader_location: 1,
-                format: VertexFormat::Float32x3,
-            }],
-        };
-
-        let color_bind_group_layout = render_device.create_bind_group_layout(
-            "color bind group layout",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        );
-
-        let color_data: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
-        let color_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("Color Buffer"),
-            contents: bytemuck::cast_slice(&color_data),
-            usage: BufferUsages::UNIFORM,
-        });
-
-        let color_bind_group = render_device.create_bind_group(
-            "color bind group",
-            &color_bind_group_layout,
-            &[BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: &color_buffer,
-                    offset: 0,
-                    size: None,
-                }),
-            }],
-        );
-
-        let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&color_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let texture_extents = Extent3d {
-            width: texture_size,
-            height: texture_size,
-            depth_or_array_layers: 1,
-        };
-
-        let texture = render_device.create_texture(&TextureDescriptor {
-            label: Some("Texture Name Or Something?"),
-            size: texture_extents,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: texture_format,
-            usage: TextureUsages::STORAGE_BINDING
-                | TextureUsages::COPY_SRC
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-
-        let texture_view = texture.create_view(&Default::default());
-
-        let output_buffer_size = (U32_SIZE * texture_size * texture_size) as BufferAddress;
-        let output_buffer = render_device.create_buffer(&BufferDescriptor {
-            size: output_buffer_size,
-            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-            label: None,
-            mapped_at_creation: false,
-        });
-
-        let render_pipeline = render_device.create_render_pipeline(&RawRenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: RawVertexState {
-                module: &vert_shader_module,
-                entry_point: "vertex",
-                buffers: &[vertex_buffer_layout],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(RawFragmentState {
-                module: &frag_shader_module,
-                entry_point: "fragment",
-                targets: &[Some(ColorTargetState {
-                    format: texture_format,
-                    blend: Some(BlendState::REPLACE),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: PrimitiveState {
-                topology: bevy::render::mesh::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: Some(Face::Back),
-                polygon_mode: bevy::render::render_resource::PolygonMode::Fill,
-                unclipped_depth: false, // ????
-                conservative: true,     // maybe?
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-
-        ExampleNode {
-            render_pipeline: Box::new(render_pipeline),
-            texture_view: Box::new(texture_view),
-            texture,
-            texture_extents,
-            vertex_buffer,
-            index_buffer,
-            num_vertices: vertices.len() as u32,
-            output_buffer,
-            texture_format,
-            output_image: None,
-            bind_group: color_bind_group,
         }
     }
 }
 
-fn update_node_sprites() {
-    // when results come back from the task...
-    // ... update the node sprites
-    // so easy...
-    // sigh
+fn poll_processed_pipeline(
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut q_task: Query<(Entity, &mut PipelineProcessTask)>,
+) {
+    for (task_entity, mut task) in q_task.iter_mut() {
+        if let Some(updated_graph) = block_on(poll_once(&mut task.0)) {
+            let mut changed_pipeline = q_pipeline.single_mut();
+            changed_pipeline.graph = updated_graph;
+            changed_pipeline.dirty = false; // critical and i wish it wasn't
+            commands.entity(task_entity).despawn();
+        }
+    }
 }
 
 fn on_changed_pipeline(
     mut commands: Commands,
     mut q_changed_pipeline: Query<&mut DisjointPipelineGraph, Changed<DisjointPipelineGraph>>,
+    mut q_task: Query<Entity, With<PipelineProcessTask>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    mut images: ResMut<Assets<Image>>,
 ) {
     if q_changed_pipeline.is_empty() {
         return;
     }
 
-    // instead of running here, we want to kick everything to an async compute thread
-    // hmm
-    // we are going to give the thread a copy of the graph which it can then mutate to consume as it finishes
-    // then it will keep a list of outputs that we suck up and distribute
-    // but you can't just remove the nodes because the downstream dependencies need fulfilled
-    // big yikes
+    let mut changed_pipeline = q_changed_pipeline.single_mut().clone();
 
-    let start = Instant::now();
-    
-    let mut changed_pipeline = q_changed_pipeline.single_mut();
-    let source_indices: Vec<_> = changed_pipeline.externals(Direction::Incoming).collect();
-
-    for node_index in source_indices {
-        let node = changed_pipeline.node_weight_mut(node_index).unwrap();
-
-        match &mut node.kind {
-            NodeKind::EXAMPLE(example_node) => {
-                let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("Command Encoder Descriptor"),
-                });
-            
-                {
-                    let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("Render Pass"),
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view: &example_node.texture_view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(LinearRgba::rgb(0.1, 0.2, 0.3).into()),
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-            
-                    render_pass.set_pipeline(&example_node.render_pipeline);
-                    render_pass.set_vertex_buffer(0, *example_node.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(*example_node.index_buffer.slice(..), IndexFormat::Uint16);
-                    render_pass.set_bind_group(0, &example_node.bind_group, &[]); // HACK/TODO: this is going to depend on the type of the node
-                    render_pass.draw(0..example_node.num_vertices, 0..1);
-                }
-            
-                encoder.copy_texture_to_buffer(
-                    ImageCopyTextureBase {
-                        aspect: TextureAspect::All,
-                        texture: &example_node.texture,
-                        mip_level: 0,
-                        origin: Origin3d::ZERO,
-                    },
-                    ImageCopyBuffer {
-                        buffer: &example_node.output_buffer,
-                        layout: ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(U32_SIZE * example_node.texture_extents.width), // todo: width prob wrong here - what happens if aspect ratio != 1?
-                            rows_per_image: Some(example_node.texture_extents.width), // todo: width prob wrong here too
-                        },
-                    },
-                    example_node.texture_extents,
-                );
-            
-                render_queue.submit(Some(encoder.finish()));
-            
-                println!(
-                    "Time elapsed in example_function() is: {:?}",
-                    start.elapsed()
-                );
-            
-                let image = {
-                    let buffer_slice = &example_node.output_buffer.slice(..);
-            
-                    let (s, r) = crossbeam_channel::unbounded::<()>();
-            
-                    buffer_slice.map_async(MapMode::Read, move |r| match r {
-                        Ok(_) => {
-                            println!(
-                                "asdfasdf asdf asTime elapsed in example_function() is: {:?}",
-                                start.elapsed()
-                            );
-                            s.send(()).expect("Failed to send map update");
-                        }
-                        Err(err) => panic!("Failed to map buffer {err}"),
-                    });
-            
-                    render_device.poll(Maintain::wait()).panic_on_timeout();
-            
-                    println!(
-                        "AFTER polling Time elapsed in example_function() is: {:?}",
-                        start.elapsed()
-                    );
-            
-                    r.recv().expect("Failed to receive map_async message");
-            
-                    let buffer: &[u8] = &buffer_slice.get_mapped_range();
-            
-                    Image::new_fill(
-                        example_node.texture_extents,
-                        TextureDimension::D2,
-                        buffer,
-                        example_node.texture_format,
-                        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-                    )
-                };
-            
-                let image_handle = images.add(image);
-                example_node.output_image = Some(image_handle.clone());
-            
-                example_node.output_buffer.unmap();
-            
-                println!(
-                    "Time elapsed in example_function() is: {:?}",
-                    start.elapsed()
-                );
-            
-                commands.spawn(SpriteBundle {
-                    texture: image_handle.clone(),
-                    ..default()
-                });
-            },
-        }
+    if !changed_pipeline.dirty {
+        // this is because when we replace the graph in poll_processed_pipeline it triggers change detection
+        // but for THAT change, it didn't dirty the graph - it IS the new source of truth
+        changed_pipeline.dirty = true;
+        return;
     }
+
+    for task_entity in q_task.iter_mut() {
+        // attempt to cancel now-invalid (due to graph change) in-flight task. we are gonna replace it w/ a new one
+        // dropping the task should cancel it, assuming it's properly async...
+        commands.entity(task_entity).despawn();
+    }
+
+    let thread_pool = AsyncComputeTaskPool::get();
+    
+    let device = render_device.clone();
+    let render_queue = render_queue.clone();
+
+    let task = thread_pool.spawn(async move {
+        let start = Instant::now();
+
+        let source_indices: Vec<_> = changed_pipeline.graph.externals(Direction::Incoming).collect();
+
+
+        for node_index in source_indices {
+            let node = changed_pipeline.graph.node_weight_mut(node_index).unwrap();
+            
+            // does anything stop us from creating a node.process function and calling it?....
+            // kinda yeah
+            // we want to queue it on the gpu...
+            // but it might just be like a basic color node or something that does not need queued
+            // also does not need processed...
+
+            match &mut node.kind {
+                NodeKind::Example(example_node) => {
+                    example_node.process(&device, &render_queue);
+                },
+            } 
+        }
+
+        changed_pipeline.graph
+    });
+
+    commands.spawn(PipelineProcessTask(task));
 }
 
 fn spawn_initial_node(
@@ -466,18 +254,32 @@ fn spawn_initial_node(
         _ => panic!("Only WGSL supported"),
     };
 
-    let pipeline_node = ExampleNode::new(
+    let example_node_entity = commands.spawn(NodeDisplay).id();
+
+    let example_node = ExampleNode::new(
         &render_device,
         frag_wgsl_source,
         vert_wgsl_source,
         512u32,
         TextureFormat::Rgba8Unorm,
+        example_node_entity,
     );
 
-    let mut graph = DiGraph::<Node, ()>::new();
-    graph.add_node(Node {
-        kind: NodeKind::EXAMPLE(pipeline_node)
-    });
+    let mut graph = DiGraph::<NodeData, ()>::new();
 
-    commands.spawn(DisjointPipelineGraph(graph));
+
+    // next - refactor the example logic into example
+    // next - make a second kind of node and pray to god we can come up with a way to make an edge between them
+
+    let example_node_index = graph.add_node(example_node);
+
+    commands
+        .entity(example_node_entity)
+        .insert(nodes::Node { index: example_node_index });
+
+
+    commands.spawn(DisjointPipelineGraph {
+        graph,
+        dirty: true,
+    });
 }
