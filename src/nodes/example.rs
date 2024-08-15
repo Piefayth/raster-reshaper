@@ -2,18 +2,33 @@ use std::{borrow::Cow, time::Instant};
 
 use bevy::{
     prelude::*,
-    render::{render_asset::RenderAssetUsages, render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, VertexAttribute, VertexFormat, VertexStepMode
-        }, renderer::{RenderDevice, RenderQueue}}, utils::HashMap,
+    render::{
+        render_asset::RenderAssetUsages,
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType,
+            BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor,
+            BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites,
+            CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer,
+            ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode,
+            MultisampleState, Operations, Origin3d, PipelineCompilationOptions,
+            PipelineLayoutDescriptor, PrimitiveState, RawFragmentState,
+            RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState,
+            RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+            ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, Texture, TextureAspect,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+            VertexAttribute, VertexFormat, VertexStepMode,
+        },
+        renderer::{RenderDevice, RenderQueue},
+    },
+    utils::HashMap,
 };
 
 use crate::{EdgeDataType, NodeData, NodeKind, Vertex, U32_SIZE};
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExampleNodeInputs {
     TextureExtents,
-    TextureFormat
+    TextureFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,11 +84,7 @@ impl ExampleNode {
             },
         ];
 
-        let indices = &[
-            0, 1, 4,
-            1, 2, 4,
-            2, 3, 4,
-        ];
+        let indices = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
         let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -84,21 +95,24 @@ impl ExampleNode {
         let index_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(indices),
-            usage: BufferUsages::INDEX
+            usage: BufferUsages::INDEX,
         });
 
         let vertex_buffer_layout = RawVertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x3,
-            }, VertexAttribute {
-                offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
-                shader_location: 1,
-                format: VertexFormat::Float32x3,
-            }],
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x3,
+                },
+            ],
         };
 
         let color_bind_group_layout = render_device.create_bind_group_layout(
@@ -208,8 +222,14 @@ impl ExampleNode {
         });
 
         let mut inputs: HashMap<ExampleNodeInputs, EdgeDataType> = HashMap::new();
-        inputs.insert(ExampleNodeInputs::TextureExtents, EdgeDataType::Extent3d(texture_extents));
-        inputs.insert(ExampleNodeInputs::TextureFormat, EdgeDataType::TextureFormat(texture_format));
+        inputs.insert(
+            ExampleNodeInputs::TextureExtents,
+            EdgeDataType::Extent3d(texture_extents),
+        );
+        inputs.insert(
+            ExampleNodeInputs::TextureFormat,
+            EdgeDataType::TextureFormat(texture_format),
+        );
 
         let mut outputs: HashMap<ExampleNodeOutputs, EdgeDataType> = HashMap::new();
         outputs.insert(ExampleNodeOutputs::Image, EdgeDataType::Image(None));
@@ -231,17 +251,13 @@ impl ExampleNode {
         }
     }
 
-    pub fn process(
-        &mut self,
-        render_device: &RenderDevice,
-        render_queue: &RenderQueue,
-    ) {
+    pub fn process(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) {
         let start = Instant::now();
-        
+
         let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Command Encoder Descriptor"),
         });
-    
+
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -257,22 +273,23 @@ impl ExampleNode {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-    
+
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, *self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(*self.index_buffer.slice(..), IndexFormat::Uint16);
             render_pass.set_bind_group(0, &self.bind_group, &[]);
             render_pass.draw(0..self.num_vertices, 0..1);
         }
-    
+
         let input_extents = match self.inputs.get(&ExampleNodeInputs::TextureExtents).unwrap() {
             EdgeDataType::Extent3d(xtnt) => xtnt,
-            _ => panic!("Silly developer forgot to uphold this invariant. [input_extents")
+            _ => panic!("Silly developer forgot to uphold this invariant. [input_extents"),
         };
 
-        let input_texture_format = match self.inputs.get(&ExampleNodeInputs::TextureFormat).unwrap() {
+        let input_texture_format = match self.inputs.get(&ExampleNodeInputs::TextureFormat).unwrap()
+        {
             EdgeDataType::TextureFormat(tfmt) => tfmt,
-            _ => panic!("Silly developer forgot to uphold this invariant. [input_texture_format]")
+            _ => panic!("Silly developer forgot to uphold this invariant. [input_texture_format]"),
         };
 
         encoder.copy_texture_to_buffer(
@@ -292,19 +309,19 @@ impl ExampleNode {
             },
             input_extents.clone(),
         );
-    
+
         render_queue.submit(Some(encoder.finish()));
-    
+
         println!(
             "Time elapsed in example_function() is: {:?}",
             start.elapsed()
         );
-    
+
         let image = {
             let buffer_slice = &self.output_buffer.slice(..);
-    
+
             let (s, r) = crossbeam_channel::unbounded::<()>();
-            
+
             buffer_slice.map_async(MapMode::Read, move |r| match r {
                 Ok(_) => {
                     println!(
@@ -315,23 +332,23 @@ impl ExampleNode {
                 }
                 Err(err) => panic!("Failed to map buffer {err}"),
             });
-            
+
             // TODO: We have to figure out how to make this yield instead of just blocking here
             // Otherwise the task is not cancellable
             // BUT
             // in the event that we cancel...
             // ... we need some way to unmap the buffer I think.
             render_device.poll(Maintain::wait()).panic_on_timeout();
-    
+
             println!(
                 "AFTER polling Time elapsed in example_function() is: {:?}",
                 start.elapsed()
             );
-    
+
             r.recv().expect("Failed to receive map_async message");
-    
+
             let buffer: &[u8] = &buffer_slice.get_mapped_range();
-    
+
             Image::new_fill(
                 input_extents.clone(),
                 TextureDimension::D2,
@@ -340,8 +357,9 @@ impl ExampleNode {
                 RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
             )
         };
-        
+
         self.output_buffer.unmap();
-        self.outputs.insert(ExampleNodeOutputs::Image, EdgeDataType::Image(Some(image)));
+        self.outputs
+            .insert(ExampleNodeOutputs::Image, EdgeDataType::Image(Some(image)));
     }
 }

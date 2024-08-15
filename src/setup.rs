@@ -1,7 +1,7 @@
 use bevy::{prelude::*, render::{render_resource::{Source, TextureFormat}, renderer::RenderDevice}, window::PresentMode};
 use petgraph::graph::DiGraph;
 
-use crate::{asset::ShaderAssets, nodes::{self, example::ExampleNode, NodeData}, DisjointPipelineGraph, GameState, NodeDisplay};
+use crate::{asset::ShaderAssets, nodes::{self, example::ExampleNode, NodeData}, DisjointPipelineGraph, GameState, NodeDisplay, ProcessPipeline};
 
 pub struct SetupPlugin;
 
@@ -69,8 +69,9 @@ fn spawn_initial_node(
 
     commands.spawn(DisjointPipelineGraph {
         graph,
-        dirty: true,
     });
+
+    commands.trigger(ProcessPipeline);
 }
 
 

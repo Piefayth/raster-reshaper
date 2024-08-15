@@ -1,22 +1,14 @@
-use std::{borrow::Cow, time::Instant};
-
-use asset::ShaderAssets;
 use bevy::{
-    app::{App}, asset::{Assets, Handle}, color::LinearRgba, ecs::system::SystemChangeTick, prelude::*, render::{
-        render_asset::RenderAssetUsages,
+    app::App, asset::{Assets, Handle}, prelude::*, render::{
         render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferAddress, BufferBinding, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Extent3d, Face, FrontFace, ImageCopyBuffer, ImageCopyTextureBase, ImageDataLayout, IndexFormat, LoadOp, Maintain, MapMode, MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RawFragmentState, RawRenderPipelineDescriptor, RawVertexBufferLayout, RawVertexState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderModuleDescriptor, ShaderSource, ShaderStages, Source, StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView, VertexAttribute, VertexFormat, VertexStepMode
+            Extent3d, TextureFormat
         },
         renderer::{RenderDevice, RenderQueue},
-    }, tasks::{block_on, poll_once, AsyncComputeTaskPool, Task}, utils::{hashbrown::HashMap}, window::PresentMode, DefaultPlugins
-};
-use bevy_asset_loader::{
-    asset_collection::AssetCollection,
-    loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
+    }, tasks::{block_on, poll_once, AsyncComputeTaskPool, Task}, DefaultPlugins
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use nodes::{example::{ExampleNode, ExampleNodeInputs, ExampleNodeOutputs}, NodeData, NodeKind};
-use petgraph::{graph::{DiGraph, NodeIndex}, visit::IntoNodeReferences, Direction};
+use nodes::{example::{ExampleNodeOutputs}, NodeData, NodeKind};
+use petgraph::{graph::{DiGraph}, visit::IntoNodeReferences, Direction};
 
 mod nodes;
 mod asset;
@@ -32,9 +24,11 @@ fn main() {
 
         .add_systems(
             Update,
-            (((on_changed_pipeline, poll_processed_pipeline), update_nodes).chain()).run_if(in_state(GameState::DoSomethingElse)),
+            (((poll_processed_pipeline), update_nodes).chain()).run_if(in_state(GameState::DoSomethingElse)),
         )
+        .observe(process_pipeline)
         .run();
+
 }
 
 
@@ -71,7 +65,6 @@ enum EdgeDataType {
 #[derive(Component, Clone)]
 struct DisjointPipelineGraph {
     graph: DiGraph<NodeData, ()>,
-    dirty: bool,
 }
 
 #[derive(Component)]
@@ -142,35 +135,33 @@ fn poll_processed_pipeline(
         if let Some(updated_graph) = block_on(poll_once(&mut task.0)) {
             let mut changed_pipeline = q_pipeline.single_mut();
             changed_pipeline.graph = updated_graph;
-            changed_pipeline.dirty = false; // critical and i wish it wasn't
             commands.entity(task_entity).despawn();
         }
     }
 }
 
-fn on_changed_pipeline(
+#[derive(Event)]
+pub struct ProcessPipeline;
+
+fn process_pipeline(
+    _trigger: Trigger<ProcessPipeline>,
     mut commands: Commands,
-    mut q_changed_pipeline: Query<&mut DisjointPipelineGraph, Changed<DisjointPipelineGraph>>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
-    if q_changed_pipeline.is_empty() {
+    if q_pipeline.is_empty() {
         return;
     }
 
-    let mut changed_pipeline = q_changed_pipeline.single_mut().clone();
-
-    if !changed_pipeline.dirty {
-        // this is because when we replace the graph in poll_processed_pipeline it triggers change detection
-        // but for THAT change, it didn't dirty the graph - it IS the new source of truth
-        changed_pipeline.dirty = true;
-        return;
-    }
+    let mut pipeline = q_pipeline.single_mut().clone();
 
     for task_entity in q_task.iter_mut() {
         // attempt to cancel now-invalid (due to graph change) in-flight task. we are gonna replace it w/ a new one
         // dropping the task should cancel it, assuming it's properly async...
+
+        // realistically we should correctly save any partial inflight work and only replace nodes w/ changed dependencies
         commands.entity(task_entity).despawn();
     }
 
@@ -180,10 +171,10 @@ fn on_changed_pipeline(
     let render_queue = render_queue.clone();
 
     let task = thread_pool.spawn(async move {
-        let source_indices: Vec<_> = changed_pipeline.graph.externals(Direction::Incoming).collect();
+        let source_indices: Vec<_> = pipeline.graph.externals(Direction::Incoming).collect();
 
         for node_index in source_indices {
-            let node = changed_pipeline.graph.node_weight_mut(node_index).unwrap();
+            let node = pipeline.graph.node_weight_mut(node_index).unwrap();
             
             match &mut node.kind {
                 NodeKind::Example(example_node) => {
@@ -192,7 +183,7 @@ fn on_changed_pipeline(
             } 
         }
 
-        changed_pipeline.graph
+        pipeline.graph // TODO: Returning the whole graph sucks; we ideally would like to return a stream of node updates
     });
 
     commands.spawn(PipelineProcessTask(task));
