@@ -18,12 +18,11 @@ use bevy::{
             TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
             VertexAttribute, VertexFormat, VertexStepMode,
         },
-        renderer::{RenderDevice, RenderQueue},
     },
     utils::HashMap,
 };
 
-use crate::{NodeData, NodeKind, Vertex, U32_SIZE};
+use crate::{setup::{CustomGpuDevice, CustomGpuQueue}, NodeData, NodeKind, Vertex, U32_SIZE};
 
 use super::{EdgeDataType, ExampleNodeInputs, ExampleNodeOutputs};
 
@@ -55,7 +54,7 @@ pub struct ExampleNode {
 
 impl ExampleNode {
     pub fn new(
-        render_device: &RenderDevice,
+        render_device: &CustomGpuDevice,
         fragment_source: &Cow<'static, str>,
         vert_source: &Cow<'static, str>,
         texture_size: u32,
@@ -259,7 +258,7 @@ impl ExampleNode {
         }
     }
 
-    pub async fn process(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) -> &mut Self{
+    pub async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) -> &mut Self{
         let start = Instant::now();
 
         let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {

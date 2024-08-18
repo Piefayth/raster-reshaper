@@ -3302,6 +3302,7 @@ dependencies = [
  "futures",
  "petgraph",
  "subenum",
+ "wgpu",
 ]
 
 [[package]]

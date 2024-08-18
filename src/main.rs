@@ -4,13 +4,14 @@ use bevy::{
     app::App, asset::{Assets, Handle}, prelude::*, render::{
         render_graph::Edge, render_resource::{
             Extent3d, TextureFormat
-        }, renderer::{RenderDevice, RenderQueue}
+        }
     }, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}, DefaultPlugins
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use futures::future::{select_all, BoxFuture};
 use nodes::{EdgeData, EdgeDataType, ExampleNodeOutputs, NodeData, NodeDisplay, NodeKind};
 use petgraph::{graph::{DiGraph, NodeIndex}, visit::{EdgeRef, IntoNodeReferences}, Direction};
+use setup::{CustomGpuDevice, CustomGpuQueue};
 
 mod nodes;
 mod asset;
@@ -176,8 +177,8 @@ fn process_pipeline(
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    render_device: Res<CustomGpuDevice>,
+    render_queue: Res<CustomGpuQueue>,
 ) {
     if q_pipeline.is_empty() {
         return;
@@ -194,7 +195,7 @@ fn process_pipeline(
 
     let thread_pool = AsyncComputeTaskPool::get();
     
-    let device = render_device.clone();
+    let device: CustomGpuDevice = render_device.clone();
     let render_queue = render_queue.clone();
     let graph_copy = pipeline.graph.clone();
 
@@ -262,7 +263,7 @@ fn process_pipeline(
     commands.spawn(PipelineProcessTask(task));
 }
 
-async fn process_node(node: ProcessNode, device: RenderDevice, queue: RenderQueue) -> ProcessNode {
+async fn process_node(node: ProcessNode, device: CustomGpuDevice, queue: CustomGpuQueue) -> ProcessNode {
     match node.kind {
         NodeKind::Example(mut example_node) => {
             example_node.process(&device, &queue).await;
