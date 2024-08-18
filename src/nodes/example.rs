@@ -23,18 +23,20 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::{EdgeDataType, NodeData, NodeKind, Vertex, U32_SIZE};
+use crate::{NodeData, NodeKind, Vertex, U32_SIZE};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ExampleNodeInputs {
-    TextureExtents,
-    TextureFormat,
-}
+use super::{EdgeDataType, ExampleNodeInputs, ExampleNodeOutputs};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ExampleNodeOutputs {
-    Image,
-}
+// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// pub enum ExampleNodeInputs {
+//     TextureExtents,
+//     TextureFormat,
+// }
+
+// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// pub enum ExampleNodeOutputs {
+//     Image,
+// }
 
 #[derive(Debug, Clone)]
 pub struct ExampleNode {
@@ -45,6 +47,7 @@ pub struct ExampleNode {
     pub output_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
+    pub color_buffer: Buffer,
     pub num_vertices: u32,
     pub inputs: HashMap<ExampleNodeInputs, EdgeDataType>,
     pub outputs: HashMap<ExampleNodeOutputs, EdgeDataType>,
@@ -133,7 +136,7 @@ impl ExampleNode {
         let color_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Color Buffer"),
             contents: bytemuck::cast_slice(&color_data),
-            usage: BufferUsages::UNIFORM,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
         let color_bind_group = render_device.create_bind_group(
@@ -210,7 +213,7 @@ impl ExampleNode {
                 cull_mode: Some(Face::Back),
                 polygon_mode: bevy::render::render_resource::PolygonMode::Fill,
                 unclipped_depth: false, // ????
-                conservative: true,     // maybe?
+                conservative: false,     // maybe? only on vulkan
             },
             depth_stencil: None,
             multisample: MultisampleState {
@@ -223,16 +226,20 @@ impl ExampleNode {
 
         let mut inputs: HashMap<ExampleNodeInputs, EdgeDataType> = HashMap::new();
         inputs.insert(
-            ExampleNodeInputs::TextureExtents,
+            ExampleNodeInputs::ExampleTextureExtents,
             EdgeDataType::Extent3d(texture_extents),
         );
         inputs.insert(
-            ExampleNodeInputs::TextureFormat,
+            ExampleNodeInputs::ExampleTextureFormat,
             EdgeDataType::TextureFormat(texture_format),
+        );
+        inputs.insert(
+            ExampleNodeInputs::ExampleColor,
+            EdgeDataType::Vec4(Vec4::ONE),
         );
 
         let mut outputs: HashMap<ExampleNodeOutputs, EdgeDataType> = HashMap::new();
-        outputs.insert(ExampleNodeOutputs::Image, EdgeDataType::Image(None));
+        outputs.insert(ExampleNodeOutputs::ExampleOutputImage, EdgeDataType::Image(None));
 
         NodeData {
             kind: NodeKind::Example(ExampleNode {
@@ -243,6 +250,7 @@ impl ExampleNode {
                 index_buffer,
                 num_vertices: vertices.len() as u32,
                 output_buffer,
+                color_buffer,
                 bind_group: color_bind_group,
                 inputs,
                 outputs,
@@ -251,12 +259,17 @@ impl ExampleNode {
         }
     }
 
-    pub fn process(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) {
+    pub async fn process(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) -> &mut Self{
         let start = Instant::now();
 
         let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Command Encoder Descriptor"),
         });
+
+        let input_color = self.inputs.get(&ExampleNodeInputs::ExampleColor).unwrap();   // but we KNOW examplecolor is a vec4...
+        if let EdgeDataType::Vec4(new_color) = input_color {
+            render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[new_color.x, new_color.y, new_color.z, new_color.w]));
+        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -281,12 +294,12 @@ impl ExampleNode {
             render_pass.draw(0..self.num_vertices, 0..1);
         }
 
-        let input_extents = match self.inputs.get(&ExampleNodeInputs::TextureExtents).unwrap() {
+        let input_extents = match self.inputs.get(&ExampleNodeInputs::ExampleTextureExtents).unwrap() {
             EdgeDataType::Extent3d(xtnt) => xtnt,
             _ => panic!("Silly developer forgot to uphold this invariant. [input_extents"),
         };
 
-        let input_texture_format = match self.inputs.get(&ExampleNodeInputs::TextureFormat).unwrap()
+        let input_texture_format = match self.inputs.get(&ExampleNodeInputs::ExampleTextureFormat).unwrap()
         {
             EdgeDataType::TextureFormat(tfmt) => tfmt,
             _ => panic!("Silly developer forgot to uphold this invariant. [input_texture_format]"),
@@ -360,6 +373,8 @@ impl ExampleNode {
 
         self.output_buffer.unmap();
         self.outputs
-            .insert(ExampleNodeOutputs::Image, EdgeDataType::Image(Some(image)));
+            .insert(ExampleNodeOutputs::ExampleOutputImage, EdgeDataType::Image(Some(image)));
+
+        self
     }
 }
