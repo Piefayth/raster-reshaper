@@ -22,27 +22,16 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::{setup::{CustomGpuDevice, CustomGpuQueue}, NodeData, NodeKind, Vertex, U32_SIZE};
+use crate::{setup::{CustomGpuDevice, CustomGpuQueue}, NodeData, NodeKind};
 
-use super::{EdgeDataType, ExampleNodeInputs, ExampleNodeOutputs};
-
-// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-// pub enum ExampleNodeInputs {
-//     TextureExtents,
-//     TextureFormat,
-// }
-
-// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-// pub enum ExampleNodeOutputs {
-//     Image,
-// }
+use super::{shared::{Vertex, U32_SIZE}, EdgeDataType, ExampleNodeInputs, ExampleNodeOutputs};
 
 #[derive(Debug, Clone)]
 pub struct ExampleNode {
     pub render_pipeline: Box<RenderPipeline>,
     pub texture_view: Box<TextureView>,
     pub bind_group: BindGroup, // todo: just one?
-    pub texture: Texture,      // the...storage texture? that we have a view into? for the output?
+    pub texture: Texture,
     pub output_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
@@ -259,8 +248,6 @@ impl ExampleNode {
     }
 
     pub async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) -> &mut Self{
-        let start = Instant::now();
-
         let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Command Encoder Descriptor"),
         });
@@ -315,7 +302,7 @@ impl ExampleNode {
                 buffer: &self.output_buffer,
                 layout: ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(U32_SIZE * input_extents.width), // todo: width prob wrong here - what happens if aspect ratio != 1?
+                    bytes_per_row: Some(U32_SIZE * input_extents.width), // todo: width prob wrong here - what happens if aspect ratio != 1? or does aspect ratio HAVE to be padded to 1?
                     rows_per_image: Some(input_extents.width), // todo: width prob wrong here too
                 },
             },
@@ -324,11 +311,6 @@ impl ExampleNode {
 
         render_queue.submit(Some(encoder.finish()));
 
-        println!(
-            "Time elapsed in example_function() is: {:?}",
-            start.elapsed()
-        );
-
         let image = {
             let buffer_slice = &self.output_buffer.slice(..);
 
@@ -336,10 +318,6 @@ impl ExampleNode {
 
             buffer_slice.map_async(MapMode::Read, move |r| match r {
                 Ok(_) => {
-                    println!(
-                        "asdfasdf asdf asTime elapsed in example_function() is: {:?}",
-                        start.elapsed()
-                    );
                     s.send(()).expect("Failed to send map update");
                 }
                 Err(err) => panic!("Failed to map buffer {err}"),
@@ -351,11 +329,6 @@ impl ExampleNode {
             // in the event that we cancel...
             // ... we need some way to unmap the buffer I think.
             render_device.poll(Maintain::wait()).panic_on_timeout();
-
-            println!(
-                "AFTER polling Time elapsed in example_function() is: {:?}",
-                start.elapsed()
-            );
 
             r.recv().expect("Failed to receive map_async message");
 

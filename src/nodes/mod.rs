@@ -1,5 +1,8 @@
 pub mod example;
 pub mod color;
+pub mod shared;
+
+use std::fmt::{self, Display};
 
 use bevy::{prelude::*, render::render_resource::{Extent3d, TextureFormat}};
 use color::ColorNode;
@@ -19,20 +22,24 @@ pub enum NodeKind {
     Color(ColorNode)
 }
 
-pub enum NodeFieldConnectionDirection {
-    Input,
-    Output,
+impl Display for NodeKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NodeKind::Example(_) => write!(f, "Example"),
+            NodeKind::Color(_) => write!(f, "Color"),
+        }
+    }
 }
 
 impl NodeKind {
-    pub fn map_field_mutating(&mut self, from_node: &NodeKind, from_field: NodeField, to_field: NodeField) {
-        let old_edge_data = self.field_value(to_field.clone(), NodeFieldConnectionDirection::Input);
+    pub fn map_field_mutating(&mut self, from_node: &NodeKind, from_field: NodeOutput, to_field: NodeInput) {
+        let old_edge_data = self.input_value(to_field.clone());
 
         match self {
             NodeKind::Example(ref mut self_ex) => {
                 // check that the "to" field points to a valid field 
                 let target_field = ExampleNodeInputs::try_from(to_field).expect("map_field was called with an invalid 'to' field. Expected an ExampleNodeInput.");
-                let new_edge_data = from_node.field_value(from_field, NodeFieldConnectionDirection::Output);
+                let new_edge_data = from_node.output_value(from_field);
   
                 let coerced_edge_data = match new_edge_data.try_convert_to(&old_edge_data) {
                     Ok(x) => x,
@@ -47,48 +54,35 @@ impl NodeKind {
         }
     }
 
-    pub fn field_value(&self, field: NodeField, dir: NodeFieldConnectionDirection) -> EdgeDataType {
+    pub fn output_value(&self, field: NodeOutput) -> EdgeDataType {
         match self {
             NodeKind::Example(self_ex) => {
-                match dir {
-                    NodeFieldConnectionDirection::Input => {
-                        let input = ExampleNodeInputs::try_from(field).expect("field_value was called with an invalid 'field'. Expected an ExampleNodeInput.");
-                        self_ex.inputs.get(&input).unwrap().clone()
-                    },
-                    NodeFieldConnectionDirection::Output => {
-                        let output = ExampleNodeOutputs::try_from(field).expect("field_value was called with an invalid 'field'. Expected an ExampleNodeOutput.");
-                        self_ex.outputs.get(&output).unwrap().clone()
-                    },
-                }
-
+                let output = ExampleNodeOutputs::try_from(field).expect("output_value was called with an invalid 'field'. Expected an ExampleNodeOutput.");
+                self_ex.outputs.get(&output).unwrap().clone()
             },
             NodeKind::Color(self_color) => {
-                match dir {
-                    NodeFieldConnectionDirection::Input => {
-                        panic!("Tried to access non-existent inputs of ColorNode.");
-                    },
-                    NodeFieldConnectionDirection::Output => {
-                        let output = ColorNodeOutputs::try_from(field).expect("field_value was called with an invalid 'field'. Expected a ColorNodeOutput.");
-                        self_color.outputs.get(&output).unwrap().clone()
-                    },
-                }
+                let output = ColorNodeOutputs::try_from(field).expect("output_value was called with an invalid 'field'. Expected a ColorNodeOutput.");
+                self_color.outputs.get(&output).unwrap().clone()
+            },
+        }
+    }
+
+    pub fn input_value(&self, field: NodeInput) -> EdgeDataType {
+        match self {
+            NodeKind::Example(self_ex) => {
+                let input = ExampleNodeInputs::try_from(field).expect("input_value was called with an invalid 'field'. Expected an ExampleNodeInput.");
+                self_ex.inputs.get(&input).unwrap().clone()
+            },
+            NodeKind::Color(_) => {
+                panic!("Tried to access non-existent inputs of ColorNode.");
             },
         }
     }
 }
 
-#[subenum(ExampleNodeInputs, ExampleNodeOutputs, ColorNodeOutputs)]
+#[subenum(ExampleNodeOutputs, ColorNodeOutputs)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NodeField {
-    #[subenum(ExampleNodeInputs)]
-    ExampleTextureExtents,
-
-    #[subenum(ExampleNodeInputs)]
-    ExampleTextureFormat,
-
-    #[subenum(ExampleNodeInputs)]
-    ExampleColor,
-
+pub enum NodeOutput {
     #[subenum(ExampleNodeOutputs)]
     ExampleOutputImage,
 
@@ -96,10 +90,23 @@ pub enum NodeField {
     ColorColor
 }
 
+#[subenum(ExampleNodeInputs)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NodeInput {
+    #[subenum(ExampleNodeInputs)]
+    ExampleTextureExtents,
+
+    #[subenum(ExampleNodeInputs)]
+    ExampleTextureFormat,
+
+    #[subenum(ExampleNodeInputs)]
+    ExampleColor
+}
+
 #[derive(Debug, Clone)]
 pub struct EdgeData {
-    pub from_field: NodeField,
-    pub to_field: NodeField
+    pub from_field: NodeOutput,
+    pub to_field: NodeInput
 }
 
 pub struct EdgeDataConversionError;

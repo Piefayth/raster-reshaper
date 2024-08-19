@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut};
+use std::{borrow::BorrowMut, time::Instant};
 
 use bevy::{
     app::App, asset::{Assets, Handle}, prelude::*, render::{
@@ -35,8 +35,6 @@ fn main() {
 
 }
 
-
-
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 enum GameState {
     #[default]
@@ -44,16 +42,6 @@ enum GameState {
     AssetProcessing,
     Setup,
     MainLoop,
-}
-
-
-const U32_SIZE: u32 = std::mem::size_of::<u32>() as u32;
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
 }
 
 #[derive(Component, Clone)]
@@ -67,6 +55,7 @@ struct PipelineProcessTask(Task<Vec<ProcessNode>>);
 #[derive(Event)]
 struct GraphWasUpdated;
 
+// Retrigger graph processing after a delay for debugging
 fn delete_me(
     mut commands: Commands,
     time: Res<Time>,
@@ -111,7 +100,7 @@ fn update_nodes(
                         }
                     },
                     NodeKind::Color(color_node) => {
-                        // well if the color cahnged i guess we'd update the little preview?
+                        // well if the color changed i guess we'd update the little preview?
                     },
                 }
             },
@@ -136,7 +125,7 @@ fn update_nodes(
     }
 }
 
-// Poll the in-progress graph processing task.
+// Check if graph processing is complete.
 fn poll_processed_pipeline(
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
@@ -187,7 +176,7 @@ fn process_pipeline(
     let pipeline = q_pipeline.single();
 
     for task_entity in q_task.iter_mut() {
-        // attempt to cancel now-invalid (due to graph change) in-flight task. we are gonna replace it w/ a new one
+        // attempt to cancel now-invalid (due to graph change) in-flight tasks. we are gonna replace it w/ a new one
         // dropping the task should cancel it, assuming it's properly async...
 
         commands.entity(task_entity).despawn();
@@ -199,7 +188,7 @@ fn process_pipeline(
     let render_queue = render_queue.clone();
     let graph_copy = pipeline.graph.clone();
 
-    let future = async move {
+    let graph_processing_work = async move {
         let mut unprocessed_nodes: HashSet<NodeIndex> = graph_copy.node_indices().collect();
         let mut in_flight_nodes: HashSet<NodeIndex> = HashSet::new();
         let nodes_to_process: Vec<ProcessNode> = get_processible_nodes(&graph_copy, &unprocessed_nodes, &in_flight_nodes);
@@ -215,6 +204,7 @@ fn process_pipeline(
 
 
         while !subtasks.is_empty() {
+            // Await the first subtask to complete
             let result = if subtasks.len() == 1 {
                 // Only one task left, no need to use select_all
                 subtasks.pop().unwrap().await
@@ -229,7 +219,7 @@ fn process_pipeline(
             in_flight_nodes.remove(&result_idx);
             unprocessed_nodes.remove(&result_idx);
 
-            // Add any new node processing tasks for nodes that now have resolved depdencies
+            // Add any new node processing tasks for nodes that now have resolved dependencies
             let new_nodes_to_process = get_processible_nodes(&graph_copy, &unprocessed_nodes, &in_flight_nodes);
             for node in new_nodes_to_process.into_iter() {
                 in_flight_nodes.insert(node.index);
@@ -239,7 +229,7 @@ fn process_pipeline(
                 let mut node_with_resolved_dependencies = node.clone();
 
                 for edge in node_dependencies {
-                    // Use the post-process version of the dependency node, since the graph itself isn't updated yet
+                    // Use the post-process version of the dependency node, since the entry in graph itself isn't updated yet
                     let from = results.get(&edge.source()).expect("Tried to depend on a node that hasn't been processed yet."); 
                     let edge_data = edge.weight();
                     
@@ -259,12 +249,14 @@ fn process_pipeline(
         results_vec
     };
 
-    let task = thread_pool.spawn(future);
+    let task = thread_pool.spawn(graph_processing_work);
     commands.spawn(PipelineProcessTask(task));
 }
 
 async fn process_node(node: ProcessNode, device: CustomGpuDevice, queue: CustomGpuQueue) -> ProcessNode {
-    match node.kind {
+    let start = Instant::now();
+    
+    let result = match node.kind {
         NodeKind::Example(mut example_node) => {
             example_node.process(&device, &queue).await;
             ProcessNode {
@@ -280,7 +272,10 @@ async fn process_node(node: ProcessNode, device: CustomGpuDevice, queue: CustomG
                 kind: NodeKind::Color(color_node),
             }
         }
-    }
+    };
+
+    println!("Node {} with index {:?} processed in {:?}", result.kind, result.index, start.elapsed());
+    result
 }
 
 fn get_processible_nodes(graph: &DiGraph<NodeData, EdgeData>, unprocessed_nodes: &HashSet<NodeIndex>, in_flight_nodes: &HashSet<NodeIndex>) -> Vec<ProcessNode> {
@@ -293,9 +288,9 @@ fn get_processible_nodes(graph: &DiGraph<NodeData, EdgeData>, unprocessed_nodes:
         }
 
         let mut dependencies = graph.edges_directed(node_idx, Direction::Incoming);
-        let all_processed = dependencies.all(|edge| !unprocessed_nodes.contains(&edge.source()));
+        let all_dependencies_processed = dependencies.all(|edge| !unprocessed_nodes.contains(&edge.source()));
 
-        if all_processed && !in_flight_nodes.contains(&node_idx){
+        if all_dependencies_processed && !in_flight_nodes.contains(&node_idx){
             if let Some(node) = graph.node_weight(node_idx) {
                 let process_node = ProcessNode {
                     index: node_idx,
