@@ -1,26 +1,31 @@
-use bevy::utils::HashMap;
 use bevy::prelude::*;
 
 
-use super::{ColorNodeOutputs, EdgeDataType, NodeData, NodeKind};
+use crate::setup::{CustomGpuDevice, CustomGpuQueue};
+
+use super::{macros::declare_node};
 
 
+declare_node!(
+    name: ColorNode,
+    fields: {
+        #[entity] entity: Entity,
+        #[output] color: Vec4,
+    },
 
-#[derive(Debug, Clone)]
-pub struct ColorNode {
-    pub outputs: HashMap<ColorNodeOutputs, EdgeDataType>,
-}
+    methods: {
+        new(
+            entity: Entity,
+            color: Vec4
+        ) -> Self {
+            Self {
+                entity,
+                color
+            }
+        }
 
-impl ColorNode {
-    pub fn new(color: Vec4, entity: Entity) -> NodeData {
-        let mut outputs = HashMap::new();
-        outputs.insert(ColorNodeOutputs::ColorColor, EdgeDataType::Vec4(color));
-
-        NodeData {
-            entity,
-            kind: NodeKind::Color(ColorNode {
-                outputs
-            })
+        process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
+            
         }
     }
-}
+);

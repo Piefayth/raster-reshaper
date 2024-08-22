@@ -1,15 +1,11 @@
-use std::{borrow::BorrowMut, time::Instant};
+use std::{time::Instant};
 
 use bevy::{
-    app::App, asset::{Assets, Handle}, prelude::*, render::{
-        render_graph::Edge, render_resource::{
-            Extent3d, TextureFormat
-        }
-    }, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}, DefaultPlugins
+    app::App, asset::{Assets, Handle}, prelude::*, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}, DefaultPlugins
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use futures::future::{select_all, BoxFuture};
-use nodes::{EdgeData, EdgeDataType, ExampleNodeOutputs, NodeData, NodeDisplay, NodeKind};
+use nodes::{Edge, Node, NodeDisplay, NodeTrait};
 use petgraph::{graph::{DiGraph, NodeIndex}, visit::{EdgeRef, IntoNodeReferences}, Direction};
 use setup::{CustomGpuDevice, CustomGpuQueue};
 
@@ -46,7 +42,7 @@ enum GameState {
 
 #[derive(Component, Clone)]
 struct DisjointPipelineGraph {
-    graph: DiGraph<NodeData, EdgeData>,
+    graph: DiGraph<Node, Edge>,
 }
 
 #[derive(Component, Deref)]
@@ -79,43 +75,42 @@ fn update_nodes(
 ) {
     let graph = &q_pipeline.single().graph;
 
-    for (idx, node_data) in graph.node_references() {
-        let probably_node = q_initialized_nodes.get_mut(node_data.entity); 
+    for (idx, node) in graph.node_references() {
+        let probably_node = q_initialized_nodes.get_mut(node.entity()); 
         
         match probably_node {
-            Ok((mut node, image_handle)) => {
-                node.index = idx;   // The NodeIndex could've changed if the graph was modified.
+            Ok((mut node_display, image_handle)) => {
+                node_display.index = idx;   // The NodeIndex could've changed if the graph was modified.
 
                 let old_image = images.get_mut(image_handle.id()).expect("Found an image handle on a node sprite that does not reference a known image.");
-                match &node_data.kind {
-                    NodeKind::Example(ex) => {
-                        let thing = ex.outputs.get(&ExampleNodeOutputs::ExampleOutputImage).expect("Should've had an image output.");
-                        match thing {
-                            EdgeDataType::Image(maybe_image) => {
-                                if let Some(image) = maybe_image {
-                                   *old_image = image.clone();
-                                }
-                            },
-                            _ => panic!("")
-                        }
+                match &node {
+                    Node::ExampleNode(ex) => {
+                        if let Some(image) = &ex.output_image {
+                            *old_image = image.clone();
+                         }
                     },
-                    NodeKind::Color(color_node) => {
+                    Node::ColorNode(color_node) => {
                         // well if the color changed i guess we'd update the little preview?
                     },
                 }
             },
             Err(_) => {
-                let probably_uninit_node = q_uninitialized_node.get_mut(node_data.entity);
+                let probably_uninit_node = q_uninitialized_node.get_mut(node.entity());
                 match probably_uninit_node {
                     Ok(_) => {
-                        if let Some(output_texture) = node_data.output_texture() {
-                            commands.entity(node_data.entity).insert(SpriteBundle {
-                                texture: images.add(output_texture),
-                                transform: Transform::from_xyz((*x_move_deleteme * 512.) - 512., 0., 0.),
-                                ..default()
-                            });
-
-                            *x_move_deleteme += 1.;
+                        match node {
+                            Node::ExampleNode(ex) => {
+                                if let Some(image) = &ex.output_image {
+                                    commands.entity(node.entity()).insert(SpriteBundle {
+                                        texture: images.add(image.clone()),
+                                        transform: Transform::from_xyz((*x_move_deleteme * 512.) - 512., 0., 0.),
+                                        ..default()
+                                    });
+        
+                                    *x_move_deleteme += 1.;
+                                }
+                            },
+                            Node::ColorNode(_) => {},
                         }
                     },
                     Err(_) => panic!("You forgot to make an entity for a node, or despawned an entity without removing the same node from the graph."),
@@ -138,10 +133,7 @@ fn poll_processed_pipeline(
             for processed_node in updated_node_data {
                 let node = pipeline.graph.node_weight_mut(processed_node.index).unwrap();
 
-                *node = NodeData {
-                    entity: processed_node.entity,
-                    kind: processed_node.kind,
-                };
+                *node = processed_node.node;
             }
 
             commands.entity(task_entity).despawn();
@@ -156,8 +148,7 @@ pub struct ProcessPipeline;
 #[derive(Clone)]
 pub struct ProcessNode {
     index: NodeIndex,
-    entity: Entity,
-    kind: NodeKind,
+    node: Node,
 }
 
 // Begin a new evaluation of all the nodes in the graph
@@ -234,7 +225,7 @@ fn process_pipeline(
                     let edge_data = edge.weight();
                     
                     // Update the dependant node
-                    node_with_resolved_dependencies.kind.map_field_mutating(&from.kind, edge_data.from_field.clone(), edge_data.to_field.clone());
+                    node_with_resolved_dependencies.node.set_input(edge_data.to_field, from.node.get_output(edge_data.from_field).unwrap());
                 }
 
 
@@ -253,32 +244,17 @@ fn process_pipeline(
     commands.spawn(PipelineProcessTask(task));
 }
 
-async fn process_node(node: ProcessNode, device: CustomGpuDevice, queue: CustomGpuQueue) -> ProcessNode {
+async fn process_node(mut p_node: ProcessNode, device: CustomGpuDevice, queue: CustomGpuQueue) -> ProcessNode {
     let start = Instant::now();
     
-    let result = match node.kind {
-        NodeKind::Example(mut example_node) => {
-            example_node.process(&device, &queue).await;
-            ProcessNode {
-                entity: node.entity,
-                index: node.index,
-                kind: NodeKind::Example(example_node),
-            }
-        },
-        NodeKind::Color(color_node) => {
-            ProcessNode {
-                entity: node.entity,
-                index: node.index,
-                kind: NodeKind::Color(color_node),
-            }
-        }
-    };
+    p_node.node.process(&device, &queue).await;
 
-    println!("Node {} with index {:?} processed in {:?}", result.kind, result.index, start.elapsed());
-    result
+    println!("Node with index {:?} processed in {:?}", p_node.index, start.elapsed());
+    
+    p_node
 }
 
-fn get_processible_nodes(graph: &DiGraph<NodeData, EdgeData>, unprocessed_nodes: &HashSet<NodeIndex>, in_flight_nodes: &HashSet<NodeIndex>) -> Vec<ProcessNode> {
+fn get_processible_nodes(graph: &DiGraph<Node, Edge>, unprocessed_nodes: &HashSet<NodeIndex>, in_flight_nodes: &HashSet<NodeIndex>) -> Vec<ProcessNode> {
     let mut processible_nodes = Vec::new();
     let mut to_check: Vec<NodeIndex> = graph.node_indices().collect();
 
@@ -294,8 +270,7 @@ fn get_processible_nodes(graph: &DiGraph<NodeData, EdgeData>, unprocessed_nodes:
             if let Some(node) = graph.node_weight(node_idx) {
                 let process_node = ProcessNode {
                     index: node_idx,
-                    entity: node.entity,
-                    kind: node.kind.clone(),
+                    node: node.clone(),
                 };
                 processible_nodes.push(process_node);
             }
