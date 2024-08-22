@@ -9,14 +9,13 @@ use bevy::{
     tasks::block_on,
     window::PresentMode,
 };
-use petgraph::graph::DiGraph;
+use petgraph::graph::{DiGraph, NodeIndex};
 use wgpu::{Features, Limits};
 
 use crate::{
     asset::ShaderAssets,
     nodes::{
-        color::ColorNode, example::ExampleNode, ColorNodeOutputs, EdgeData, ExampleNodeInputs,
-        NodeData, NodeDisplay,
+        color::ColorNode, example::ExampleNode, Edge, Node, NodeDisplay, NodeTrait
     },
     DisjointPipelineGraph, GameState, ProcessPipeline,
 };
@@ -63,7 +62,7 @@ fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
                         Limits::default()
                     },
                 },
-                None, // Trace path can also be provided here if needed
+                None,
             )
             .await
             .unwrap()
@@ -101,48 +100,50 @@ fn spawn_initial_node(
     let color_node_entity2 = commands.spawn(NodeDisplay { index: 0.into() }).id();
 
     let example_node = ExampleNode::new(
+        example_node_entity,
         &render_device,
         frag_wgsl_source,
         vert_wgsl_source,
         512u32,
         TextureFormat::Rgba8Unorm,
-        example_node_entity,
     );
 
     let example_node2 = ExampleNode::new(
+        example_node_entity2,
         &render_device,
         frag_wgsl_source,
         vert_wgsl_source,
         512u32,
         TextureFormat::Rgba8Unorm,
-        example_node_entity2,
     );
 
-    let color_node = ColorNode::new(Vec4::new(1., 1., 0., 1.), color_node_entity);
-    let color_node2 = ColorNode::new(Vec4::new(1., 0., 1., 1.), color_node_entity2);
+    let color_node = ColorNode::new(color_node_entity, Vec4::new(1., 1., 0., 1.));
+    let color_node2 = ColorNode::new(color_node_entity2, Vec4::new(1., 0., 1., 1.));
 
-    let mut graph = DiGraph::<NodeData, EdgeData>::new();
+    let mut graph = DiGraph::<Node, Edge>::new();
 
-    let example_node_index = graph.add_node(example_node);
-    let example_node2_index = graph.add_node(example_node2);
-    let color_node_index = graph.add_node(color_node);
-    let color_node2_index = graph.add_node(color_node2);
+    let example_node_index = graph.add_node(Node::ExampleNode(example_node));
+    let example_node2_index = graph.add_node(Node::ExampleNode(example_node2));
+    let color_node_index = graph.add_node(Node::ColorNode(color_node));
+    let color_node2_index = graph.add_node(Node::ColorNode(color_node2));
 
-    graph.add_edge(
+    let _ = graph.add_edge_checked(
         color_node_index,
         example_node_index,
-        EdgeData {
-            from_field: ColorNodeOutputs::ColorColor.into(),
-            to_field: ExampleNodeInputs::ExampleColor.into(),
-    });
+        Edge {
+            from_field: ColorNode::color,
+            to_field: ExampleNode::triangle_color,
+        }
+    );
 
-    graph.add_edge(
+    let _ = graph.add_edge_checked(
         color_node2_index,
         example_node2_index,
-        EdgeData {
-            from_field: ColorNodeOutputs::ColorColor.into(),
-            to_field: ExampleNodeInputs::ExampleColor.into(),
-    });
+        Edge {
+            from_field: ColorNode::color,
+            to_field: ExampleNode::triangle_color,
+        }
+    );
 
     commands.entity(example_node_entity).insert(NodeDisplay {
         index: example_node_index,
@@ -167,4 +168,30 @@ fn spawn_initial_node(
 
 fn done_setting_up(mut next_state: ResMut<NextState<GameState>>) {
     next_state.set(GameState::MainLoop);
+}
+
+
+
+pub trait AddEdgeChecked {
+    fn add_edge_checked(&mut self, from: NodeIndex, to: NodeIndex, edge: Edge) -> Result<(), String>;
+}
+
+impl AddEdgeChecked for DiGraph<Node, Edge> {
+    fn add_edge_checked(&mut self, from: NodeIndex, to: NodeIndex, edge: Edge) -> Result<(), String> {
+        let from_node = self.node_weight(from)
+            .ok_or_else(|| format!("Node at index {:?} not found", from))?;
+        let to_node = self.node_weight(to)
+            .ok_or_else(|| format!("Node at index {:?} not found", to))?;
+
+        if from_node.get_output(edge.from_field).is_none() {
+            return Err(format!("Output field {:?} not found in source node", edge.from_field));
+        }
+
+        if to_node.get_input(edge.to_field).is_none() {
+            return Err(format!("Input field {:?} not found in target node", edge.to_field));
+        }
+
+        self.add_edge(from, to, edge);
+        Ok(())
+    }
 }

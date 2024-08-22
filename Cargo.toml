@@ -11,7 +11,6 @@ bytemuck = "1.16.3"
 crossbeam-channel = "0.5.13"
 futures = "0.3.30"
 petgraph = "0.6.5"
-subenum = "1.1.2"
 wgpu = { version = "0.20", default-features = false, features = [
   "wgsl",
   "dx12",

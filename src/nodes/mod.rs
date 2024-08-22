@@ -2,162 +2,318 @@ pub mod example;
 pub mod color;
 pub mod shared;
 
-use std::fmt::{self, Display};
-
 use bevy::{prelude::*, render::render_resource::{Extent3d, TextureFormat}};
 use color::ColorNode;
 use example::{ExampleNode};
 use petgraph::graph::NodeIndex;
-use subenum::subenum;
 
+use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
 #[derive(Component)]
 pub struct NodeDisplay {
     pub index: NodeIndex,
 }
 
-#[derive(Debug, Clone)]
-pub enum NodeKind {
-    Example(ExampleNode),
-    Color(ColorNode)
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct InputId(&'static str, &'static str);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct OutputId(&'static str, &'static str);
+
+#[derive(Clone)]
+pub struct Edge {
+    pub from_field: OutputId,
+    pub to_field: InputId,
 }
 
-impl Display for NodeKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            NodeKind::Example(_) => write!(f, "Example"),
-            NodeKind::Color(_) => write!(f, "Color"),
+macro_rules! define_field_enum {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $(
+                $variant:ident($type:ty)
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($variant($type),)*
+        }
+
+        $(
+            impl From<$type> for $name {
+                fn from(value: $type) -> Self {
+                    $name::$variant(value)
+                }
+            }
+        )*
+    }
+}
+
+define_field_enum! {
+    #[derive(Clone, Debug)]
+    pub enum Field {
+        U32(u32),
+        F32(f32),
+        Vec4(Vec4),
+        Extent3d(Extent3d),
+        TextureFormat(TextureFormat),
+        Image(Option<Image>)
+    }
+}
+
+impl TryFrom<Field> for u32 {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::U32(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to u32", value))
         }
     }
 }
 
-impl NodeKind {
-    pub fn map_field_mutating(&mut self, from_node: &NodeKind, from_field: NodeOutput, to_field: NodeInput) {
-        let old_edge_data = self.input_value(to_field.clone());
+impl TryFrom<Field> for f32 {
+    type Error = String;
 
-        match self {
-            NodeKind::Example(ref mut self_ex) => {
-                // check that the "to" field points to a valid field 
-                let target_field = ExampleNodeInputs::try_from(to_field).expect("map_field was called with an invalid 'to' field. Expected an ExampleNodeInput.");
-                let new_edge_data = from_node.output_value(from_field);
-  
-                let coerced_edge_data = match new_edge_data.try_convert_to(&old_edge_data) {
-                    Ok(x) => x,
-                    Err(_) => todo!(),
-                };
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::F32(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to f32", value))
+        }
+    }
+}
 
-                self_ex.inputs.insert(target_field, coerced_edge_data);
+impl TryFrom<Field> for Vec4 {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::Vec4(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to Vec4", value))
+        }
+    }
+}
+
+impl TryFrom<Field> for Extent3d {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::Extent3d(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to Extent3d", value))
+        }
+    }
+}
+
+impl TryFrom<Field> for TextureFormat {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::TextureFormat(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to TextureFormat", value))
+        }
+    }
+}
+
+impl TryFrom<Field> for Option<Image> {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::Image(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to Option<Image>", value))
+        }
+    }
+}
+
+impl TryFrom<Field> for Image {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::Image(Some(v)) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to Image", value))
+        }
+    }
+}
+
+
+pub trait NodeTrait {
+    fn get_input(&self, id: InputId) -> Option<Field>;
+    fn get_output(&self, id: OutputId) -> Option<Field>;
+    fn set_input(&mut self, id: InputId, value: Field) -> Result<(), String>;
+    fn set_output(&mut self, id: OutputId, value: Field) -> Result<(), String>;
+    fn input_fields(&self) -> &[InputId];
+    fn output_fields(&self) -> &[OutputId];
+    async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue);
+    fn entity(&self) -> Entity;
+}
+
+mod macros {
+    macro_rules! declare_node {
+        (
+            name: $node_name:ident,
+            fields: {
+                #[entity] $entity_field:ident: Entity,
+                $(#[input] $input_field:ident: $input_type:ty,)*
+                $(#[output] $output_field:ident: $output_type:ty,)*
+                $($regular_field:ident: $regular_type:ty,)*
             },
-            NodeKind::Color(self_color) => {
-                panic!("Tried to map non-existent input of ColorNode.");
+            methods: {
+                new(
+                    $($param_name:ident: $param_type:ty),* $(,)?
+                ) -> Self $constructor_body:block
+                process($($process_args:tt)*) $process_body:block
+            }
+        ) => {
+            #[derive(Clone)]
+            pub struct $node_name {
+                pub $entity_field: Entity,
+                $(pub $input_field: $input_type,)*
+                $(pub $output_field: $output_type,)*
+                $(pub $regular_field: $regular_type,)*
+            }
+    
+            impl $node_name {
+                pub fn new($($param_name: $param_type),*) -> Self $constructor_body
+    
+                $(pub const $input_field: $crate::nodes::InputId = $crate::nodes::InputId(stringify!($node_name), stringify!($input_field));)*
+                $(pub const $output_field: $crate::nodes::OutputId = $crate::nodes::OutputId(stringify!($node_name), stringify!($output_field));)*
+            }
+    
+            impl $crate::nodes::NodeTrait for $node_name {
+                fn get_input(&self, id: $crate::nodes::InputId) -> Option<$crate::nodes::Field> {
+                    match id {
+                        $(Self::$input_field => Some(Field::from(self.$input_field.clone())),)*
+                        _ => None,
+                    }
+                }
+    
+                fn get_output(&self, id: $crate::nodes::OutputId) -> Option<$crate::nodes::Field> {
+                    match id {
+                        $(Self::$output_field => Some($crate::nodes::Field::from(self.$output_field.clone())),)*
+                        _ => None,
+                    }
+                }
+    
+                fn set_input(&mut self, id: $crate::nodes::InputId, value: $crate::nodes::Field) -> Result<(), String> {
+                    match id {
+                        $(Self::$input_field => {
+                            self.$input_field = <$input_type>::try_from(value)?;
+                            Ok(())
+                        })*
+                        _ => Err(format!("Invalid input field ID for {}", stringify!($node_name))),
+                    }
+                }
+    
+                fn set_output(&mut self, id: $crate::nodes::OutputId, value: $crate::nodes::Field) -> Result<(), String> {
+                    match id {
+                        $(Self::$output_field => {
+                            self.$output_field = <$output_type>::try_from(value)?;
+                            Ok(())
+                        })*
+                        _ => Err(format!("Invalid output field ID for {}", stringify!($node_name))),
+                    }
+                }
+    
+                fn input_fields(&self) -> &[$crate::nodes::InputId] {
+                    &[$(Self::$input_field,)*]
+                }
+    
+                fn output_fields(&self) -> &[$crate::nodes::OutputId] {
+                    &[$(Self::$output_field,)*]
+                }
+    
+                async fn process($($process_args)*) $process_body
+    
+                fn entity(&self) -> Entity {
+                    self.$entity_field
+                }
             }
         }
     }
 
-    pub fn output_value(&self, field: NodeOutput) -> EdgeDataType {
-        match self {
-            NodeKind::Example(self_ex) => {
-                let output = ExampleNodeOutputs::try_from(field).expect("output_value was called with an invalid 'field'. Expected an ExampleNodeOutput.");
-                self_ex.outputs.get(&output).unwrap().clone()
-            },
-            NodeKind::Color(self_color) => {
-                let output = ColorNodeOutputs::try_from(field).expect("output_value was called with an invalid 'field'. Expected a ColorNodeOutput.");
-                self_color.outputs.get(&output).unwrap().clone()
-            },
+    pub(crate) use declare_node; 
+}
+
+
+macro_rules! declare_node_enum_and_impl_trait {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $enum_name:ident {
+            $($variant:ident($node_type:ty)),* $(,)?
         }
-    }
-
-    pub fn input_value(&self, field: NodeInput) -> EdgeDataType {
-        match self {
-            NodeKind::Example(self_ex) => {
-                let input = ExampleNodeInputs::try_from(field).expect("input_value was called with an invalid 'field'. Expected an ExampleNodeInput.");
-                self_ex.inputs.get(&input).unwrap().clone()
-            },
-            NodeKind::Color(_) => {
-                panic!("Tried to access non-existent inputs of ColorNode.");
-            },
-        }
-    }
-}
-
-#[subenum(ExampleNodeOutputs, ColorNodeOutputs)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NodeOutput {
-    #[subenum(ExampleNodeOutputs)]
-    ExampleOutputImage,
-
-    #[subenum(ColorNodeOutputs)]
-    ColorColor
-}
-
-#[subenum(ExampleNodeInputs)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum NodeInput {
-    #[subenum(ExampleNodeInputs)]
-    ExampleTextureExtents,
-
-    #[subenum(ExampleNodeInputs)]
-    ExampleTextureFormat,
-
-    #[subenum(ExampleNodeInputs)]
-    ExampleColor
-}
-
-#[derive(Debug, Clone)]
-pub struct EdgeData {
-    pub from_field: NodeOutput,
-    pub to_field: NodeInput
-}
-
-pub struct EdgeDataConversionError;
-
-#[derive(Debug, Clone)]
-pub enum EdgeDataType {
-    Integer(i32),
-    Float(f32),
-    Boolean(bool),
-    Vec4(Vec4),
-    Image(Option<Image>),
-    Extent3d(Extent3d),
-    TextureFormat(TextureFormat),
-}
-
-impl EdgeDataType {
-    pub fn try_convert_to(&self, other: &EdgeDataType) -> Result<EdgeDataType, EdgeDataConversionError> {
-        if std::mem::discriminant(self) == std::mem::discriminant(other) {
-            return Ok(self.clone());
+    ) => {
+        #[derive(Clone)]
+        $(#[$meta])*
+        $vis enum $enum_name {
+            $($variant($node_type)),*
         }
 
-        match (self, other) {
-            (EdgeDataType::Integer(i), EdgeDataType::Float(_)) => Ok(EdgeDataType::Float(*i as f32)),
-            (EdgeDataType::Float(f), EdgeDataType::Integer(_)) => Ok(EdgeDataType::Integer(*f as i32)),
-            _ => Err(EdgeDataConversionError{}),
-        }
-    }
-}
-
-
-#[derive(Debug, Clone)]
-pub struct NodeData {
-    pub entity: Entity,
-    pub kind: NodeKind,
-}
-
-impl NodeData {
-    pub fn output_texture(&self) -> Option<Image> {
-        match &self.kind {
-            NodeKind::Example(ex) => {
-                let maybe_data = ex.outputs.get(&ExampleNodeOutputs::ExampleOutputImage).unwrap();
-                
-                match maybe_data {
-                    EdgeDataType::Image(maybe_image) => match maybe_image {
-                        Some(image) => Some(image.clone()),
-                        None => None,
-                    },
-                    _ => panic!("Non image data type in image edge.")
+        impl NodeTrait for $enum_name {
+            fn get_input(&self, id: InputId) -> Option<Field> {
+                match self {
+                    $($enum_name::$variant(n) => n.get_input(id),)*
                 }
-            },
-            _ => None
+            }
+
+            fn get_output(&self, id: OutputId) -> Option<Field> {
+                match self {
+                    $($enum_name::$variant(n) => n.get_output(id),)*
+                }
+            }
+
+            fn set_input(&mut self, id: InputId, value: Field) -> Result<(), String> {
+                match self {
+                    $($enum_name::$variant(n) => n.set_input(id, value),)*
+                }
+            }
+
+            fn set_output(&mut self, id: OutputId, value: Field) -> Result<(), String> {
+                match self {
+                    $($enum_name::$variant(n) => n.set_output(id, value),)*
+                }
+            }
+
+            fn input_fields(&self) -> &[InputId] {
+                match self {
+                    $($enum_name::$variant(n) => n.input_fields(),)*
+                }
+            }
+
+            fn output_fields(&self) -> &[OutputId] {
+                match self {
+                    $($enum_name::$variant(n) => n.output_fields(),)*
+                }
+            }
+
+            async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
+                match self {
+                    $($enum_name::$variant(n) => n.process(render_device, render_queue).await,)*
+                }
+            }
+
+            fn entity(&self) -> Entity {
+                match self {
+                    $($enum_name::$variant(n) => n.entity(),)*
+                }
+            }
         }
+    }
+}
+
+declare_node_enum_and_impl_trait! {
+    pub enum Node {
+        ExampleNode(ExampleNode),
+        ColorNode(ColorNode),
     }
 }
