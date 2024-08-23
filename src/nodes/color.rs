@@ -3,7 +3,7 @@ use bevy::prelude::*;
 
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
-use super::{macros::declare_node};
+use super::{macros::declare_node, Field, InputId};
 
 
 declare_node!(

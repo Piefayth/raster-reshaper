@@ -173,6 +173,7 @@ mod macros {
                     $($param_name:ident: $param_type:ty),* $(,)?
                 ) -> Self $constructor_body:block
                 process($($process_args:tt)*) $process_body:block
+                $(set_input($($set_input_args:tt)*) -> Result<(), String> $set_input_body:block)?
             }
         ) => {
             #[derive(Clone)]
@@ -188,12 +189,21 @@ mod macros {
     
                 $(pub const $input_field: $crate::nodes::InputId = $crate::nodes::InputId(stringify!($node_name), stringify!($input_field));)*
                 $(pub const $output_field: $crate::nodes::OutputId = $crate::nodes::OutputId(stringify!($node_name), stringify!($output_field));)*
+                
+                $(fn custom_set_input($($set_input_args)*) -> Result<(), String> $set_input_body)?
+    
+                fn convert_input(&self, id: $crate::nodes::InputId, value: $crate::nodes::Field) -> Result<$crate::nodes::Field, String> {
+                    match id {
+                        $(Self::$input_field => Ok($crate::nodes::Field::from(<$input_type>::try_from(value)?)),)*
+                        _ => Err(format!("Invalid input field ID for {}", stringify!($node_name))),
+                    }
+                }
             }
     
             impl $crate::nodes::NodeTrait for $node_name {
                 fn get_input(&self, id: $crate::nodes::InputId) -> Option<$crate::nodes::Field> {
                     match id {
-                        $(Self::$input_field => Some(Field::from(self.$input_field.clone())),)*
+                        $(Self::$input_field => Some($crate::nodes::Field::from(self.$input_field.clone())),)*
                         _ => None,
                     }
                 }
@@ -206,9 +216,11 @@ mod macros {
                 }
     
                 fn set_input(&mut self, id: $crate::nodes::InputId, value: $crate::nodes::Field) -> Result<(), String> {
+                    let converted_value = self.convert_input(id, value)?;
+                    declare_node!(@optional_set_input, self, id, &converted_value, $($($set_input_args)*)?);
                     match id {
                         $(Self::$input_field => {
-                            self.$input_field = <$input_type>::try_from(value)?;
+                            self.$input_field = <$input_type>::try_from(converted_value)?;
                             Ok(())
                         })*
                         _ => Err(format!("Invalid input field ID for {}", stringify!($node_name))),
@@ -239,7 +251,15 @@ mod macros {
                     self.$entity_field
                 }
             }
-        }
+        };
+    
+        (@optional_set_input, $self:expr, $id:expr, $converted_value:expr, $($args:tt)+) => {
+            $self.custom_set_input($id, $converted_value)?;
+        };
+    
+        (@optional_set_input, $self:expr, $id:expr, $converted_value:expr,) => {
+            // Do nothing if there's no custom set_input implementation
+        };
     }
 
     pub(crate) use declare_node; 

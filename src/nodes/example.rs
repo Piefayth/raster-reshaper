@@ -19,12 +19,11 @@ use bevy::{
             VertexAttribute, VertexFormat, VertexStepMode,
         },
     },
-    utils::HashMap,
 };
 
 use crate::{setup::{CustomGpuDevice, CustomGpuQueue}};
 
-use super::{macros::declare_node, shared::{Vertex, U32_SIZE}, Field};
+use super::{macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId};
 
 
 declare_node!(
@@ -317,6 +316,15 @@ declare_node!(
     
             self.output_buffer.unmap();
             self.output_image = Some(image);
+        }
+
+
+        set_input(&mut self, id: InputId, value: &Field) -> Result<(), String> {
+            // TODO: Update any internal state that might require an update due to an input change.
+            // Texture extents, texture format...
+            // Field is guaranteed by the macro to be an appropriate type for the input id
+            println!("Custom set_input called with value: {:?}", value);
+            Ok(())
         }
     }
 );

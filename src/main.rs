@@ -205,6 +205,10 @@ fn process_pipeline(
                 result
             };
 
+            // TODO: Take the finished 'result' and send it back to main thread early
+                // rather than waiting for the entire graph to complete
+                // but don't bother until it's noticably annoying that you dont do this (i.e. until partial completion actually matters to the UX)
+
             let result_idx = result.index.clone();
             results.insert(result_idx, result);
             in_flight_nodes.remove(&result_idx);
@@ -225,9 +229,8 @@ fn process_pipeline(
                     let edge_data = edge.weight();
                     
                     // Update the dependant node
-                    node_with_resolved_dependencies.node.set_input(edge_data.to_field, from.node.get_output(edge_data.from_field).unwrap());
+                    let _ = node_with_resolved_dependencies.node.set_input(edge_data.to_field, from.node.get_output(edge_data.from_field).unwrap());
                 }
-
 
                 let subtask = process_node(node_with_resolved_dependencies, device.clone(), render_queue.clone()).boxed();
     
