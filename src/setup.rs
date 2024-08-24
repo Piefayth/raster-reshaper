@@ -18,7 +18,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::{GeneratedMeshes, ShaderAssets}, graph::{DisjointPipelineGraph, Edge, ProcessPipeline}, nodes::{color::ColorNode, example::ExampleNode, Node, NodeDisplay, NodeTrait}, ui::context_menu::OpenContextMenu, GameState
+    asset::{GeneratedMeshes, ShaderAssets}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, TriggerProcessPipeline}, nodes::{color::ColorNode, example::ExampleNode, Node, NodeDisplay, NodeTrait}, ui::context_menu::OpenContextMenu, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -26,7 +26,7 @@ pub struct SetupPlugin;
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            OnEnter(GameState::Setup),
+            OnEnter(ApplicationState::Setup),
             (
                 setup_device_and_queue,
                 (spawn_initial_node, setup_scene, done_setting_up),
@@ -60,7 +60,7 @@ fn setup_scene(
             transform: Transform::from_xyz(0., 0., -1000.),
             ..default()
         })
-        .insert(On::<Pointer<Click>>::target_commands_mut(
+        .insert(On::<Pointer<Click>>::target_commands_mut(  // do we like adding this here? what are the alternatives? bundles?
             |click, click_commands| {
                 match click.button {
                     PointerButton::Secondary => {
@@ -195,51 +195,9 @@ fn spawn_initial_node(
 
     commands.spawn(DisjointPipelineGraph { graph });
 
-    commands.trigger(ProcessPipeline);
+    commands.trigger(TriggerProcessPipeline);
 }
 
-fn done_setting_up(mut next_state: ResMut<NextState<GameState>>) {
-    next_state.set(GameState::MainLoop);
-}
-
-pub trait AddEdgeChecked {
-    fn add_edge_checked(
-        &mut self,
-        from: NodeIndex,
-        to: NodeIndex,
-        edge: Edge,
-    ) -> Result<(), String>;
-}
-
-impl AddEdgeChecked for DiGraph<Node, Edge> {
-    fn add_edge_checked(
-        &mut self,
-        from: NodeIndex,
-        to: NodeIndex,
-        edge: Edge,
-    ) -> Result<(), String> {
-        let from_node = self
-            .node_weight(from)
-            .ok_or_else(|| format!("Node at index {:?} not found", from))?;
-        let to_node = self
-            .node_weight(to)
-            .ok_or_else(|| format!("Node at index {:?} not found", to))?;
-
-        if from_node.get_output(edge.from_field).is_none() {
-            return Err(format!(
-                "Output field {:?} not found in source node",
-                edge.from_field
-            ));
-        }
-
-        if to_node.get_input(edge.to_field).is_none() {
-            return Err(format!(
-                "Input field {:?} not found in target node",
-                edge.to_field
-            ));
-        }
-
-        self.add_edge(from, to, edge);
-        Ok(())
-    }
+fn done_setting_up(mut next_state: ResMut<NextState<ApplicationState>>) {
+    next_state.set(ApplicationState::MainLoop);
 }

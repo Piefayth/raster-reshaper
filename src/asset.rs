@@ -4,7 +4,7 @@ use bevy_asset_loader::{
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
 };
 
-use crate::GameState;
+use crate::ApplicationState;
 
 pub struct AssetPlugin;
 
@@ -12,20 +12,20 @@ impl Plugin for AssetPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_loading_state(
-                LoadingState::new(GameState::AssetLoading)
-                    .continue_to_state(GameState::AssetProcessing)
+                LoadingState::new(ApplicationState::AssetLoading)
+                    .continue_to_state(ApplicationState::AssetProcessing)
                     .load_collection::<ShaderAssets>()
                     .load_collection::<ImageAssets>(),
             )
             .add_systems(
-                OnEnter(GameState::AssetProcessing),
+                OnEnter(ApplicationState::AssetProcessing),
                 (generate_meshes, done_processsing_assets),
             );
     }
 }
 
-fn done_processsing_assets(mut next_state: ResMut<NextState<GameState>>) {
-    next_state.set(GameState::Setup);
+fn done_processsing_assets(mut next_state: ResMut<NextState<ApplicationState>>) {
+    next_state.set(ApplicationState::Setup);
 }
 
 fn generate_meshes(

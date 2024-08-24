@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
-use super::{ macros::macros::declare_node, Field, InputId};
+use super::{ macros::macros::declare_node};
 
 declare_node!(
     name: ColorNode,

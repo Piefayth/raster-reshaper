@@ -1,6 +1,6 @@
 use std::{time::Instant};
 
-use crate::{nodes::{InputId, NodeDisplay, OutputId, Node, NodeTrait}, GameState};
+use crate::{nodes::{InputId, NodeDisplay, OutputId, Node, NodeTrait}, ApplicationState};
 use bevy::{
     app::App, asset::{Assets, Handle}, prelude::*, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}
 };
@@ -15,7 +15,7 @@ impl Plugin for GraphPlugin {
         app
             .add_systems(
                     Update,
-                    (poll_processed_pipeline, delete_me).run_if(in_state(GameState::MainLoop)),
+                    (poll_processed_pipeline, delete_me).run_if(in_state(ApplicationState::MainLoop)),
                 )
             .observe(process_pipeline)
             .observe(update_nodes);
@@ -34,7 +34,7 @@ pub struct PipelineProcessTask(Task<Vec<ProcessNode>>);
 struct GraphWasUpdated;
 
 #[derive(Event)]
-pub struct ProcessPipeline;
+pub struct TriggerProcessPipeline;
 
 #[derive(Clone)]
 pub struct ProcessNode {
@@ -55,7 +55,7 @@ fn delete_me(
     mut bonk: Local<bool>
 ) {
     if !*bonk && time.elapsed_seconds() > 5. {
-        commands.trigger(ProcessPipeline);
+        commands.trigger(TriggerProcessPipeline);
         *bonk = true;
     }
 }
@@ -141,7 +141,7 @@ fn poll_processed_pipeline(
 
 // Begin a new evaluation of all the nodes in the graph
 fn process_pipeline(
-    _trigger: Trigger<ProcessPipeline>,
+    _trigger: Trigger<TriggerProcessPipeline>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
@@ -269,4 +269,46 @@ fn get_processible_nodes(graph: &DiGraph<Node, Edge>, unprocessed_nodes: &HashSe
     }
 
     processible_nodes
+}
+
+pub trait AddEdgeChecked {
+    fn add_edge_checked(
+        &mut self,
+        from: NodeIndex,
+        to: NodeIndex,
+        edge: Edge,
+    ) -> Result<(), String>;
+}
+
+impl AddEdgeChecked for DiGraph<Node, Edge> {
+    fn add_edge_checked(
+        &mut self,
+        from: NodeIndex,
+        to: NodeIndex,
+        edge: Edge,
+    ) -> Result<(), String> {
+        let from_node = self
+            .node_weight(from)
+            .ok_or_else(|| format!("Node at index {:?} not found", from))?;
+        let to_node = self
+            .node_weight(to)
+            .ok_or_else(|| format!("Node at index {:?} not found", to))?;
+
+        if from_node.get_output(edge.from_field).is_none() {
+            return Err(format!(
+                "Output field {:?} not found in source node",
+                edge.from_field
+            ));
+        }
+
+        if to_node.get_input(edge.to_field).is_none() {
+            return Err(format!(
+                "Input field {:?} not found in target node",
+                edge.to_field
+            ));
+        }
+
+        self.add_edge(from, to, edge);
+        Ok(())
+    }
 }

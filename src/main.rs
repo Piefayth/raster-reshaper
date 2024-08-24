@@ -23,12 +23,12 @@ fn main() {
         .add_plugins(ui::UiPlugin)
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
-        .init_state::<GameState>()
+        .init_state::<ApplicationState>()
         .run();
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
-enum GameState {
+enum ApplicationState {
     #[default]
     AssetLoading,
     AssetProcessing,
