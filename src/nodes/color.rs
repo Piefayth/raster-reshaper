@@ -1,10 +1,8 @@
 use bevy::prelude::*;
 
-
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
-use super::{macros::declare_node, Field, InputId};
-
+use super::{ macros::macros::declare_node, Field, InputId};
 
 declare_node!(
     name: ColorNode,
@@ -25,7 +23,7 @@ declare_node!(
         }
 
         process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
-            
+
         }
     }
 );

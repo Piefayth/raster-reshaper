@@ -21,10 +21,11 @@ use bevy::{
     },
 };
 
-use crate::{setup::{CustomGpuDevice, CustomGpuQueue}};
+use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
-use super::{macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId};
-
+use super::{
+    macros::macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId
+};
 
 declare_node!(
     name: ExampleNode,
@@ -47,7 +48,7 @@ declare_node!(
     methods: {
         new(
             entity: Entity,
-            render_device: &CustomGpuDevice, 
+            render_device: &CustomGpuDevice,
             fragment_source: &Cow<'static, str>,
             vert_source: &Cow<'static, str>,
             texture_size: u32,
@@ -57,12 +58,12 @@ declare_node!(
                 label: Some("Default Frag Shader Module?"),
                 source: ShaderSource::Wgsl(Cow::Borrowed(fragment_source)),
             });
-    
+
             let vert_shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
                 label: Some("Default Vert Shader Module?"),
                 source: ShaderSource::Wgsl(Cow::Borrowed(vert_source)),
             });
-    
+
             let vertices = &[
                 Vertex {
                     position: [0.0, 0.5, 0.0],
@@ -77,21 +78,21 @@ declare_node!(
                     color: [0.0, 0.0, 1.0],
                 },
             ];
-    
+
             let indices = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
-    
+
             let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: bytemuck::cast_slice(vertices),
                 usage: BufferUsages::VERTEX,
             });
-    
+
             let index_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("Index Buffer"),
                 contents: bytemuck::cast_slice(indices),
                 usage: BufferUsages::INDEX,
             });
-    
+
             let vertex_buffer_layout = RawVertexBufferLayout {
                 array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
                 step_mode: VertexStepMode::Vertex,
@@ -108,7 +109,7 @@ declare_node!(
                     },
                 ],
             };
-    
+
             let color_bind_group_layout = render_device.create_bind_group_layout(
                 "color bind group layout",
                 &[BindGroupLayoutEntry {
@@ -122,14 +123,14 @@ declare_node!(
                     count: None,
                 }],
             );
-    
+
             let color_data: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
             let color_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("Color Buffer"),
                 contents: bytemuck::cast_slice(&color_data),
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             });
-    
+
             let color_bind_group = render_device.create_bind_group(
                 "color bind group",
                 &color_bind_group_layout,
@@ -142,19 +143,19 @@ declare_node!(
                     }),
                 }],
             );
-    
+
             let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Pipeline Layout"),
                 bind_group_layouts: &[&color_bind_group_layout],
                 push_constant_ranges: &[],
             });
-    
+
             let texture_extents = Extent3d {
                 width: texture_size,
                 height: texture_size,
                 depth_or_array_layers: 1,
             };
-    
+
             let texture = render_device.create_texture(&TextureDescriptor {
                 label: Some("Texture Name Or Something?"),
                 size: texture_extents,
@@ -167,9 +168,9 @@ declare_node!(
                     | TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-    
+
             let texture_view = texture.create_view(&Default::default());
-    
+
             let output_buffer_size = (U32_SIZE * texture_size * texture_size) as BufferAddress;
             let output_buffer = render_device.create_buffer(&BufferDescriptor {
                 size: output_buffer_size,
@@ -177,7 +178,7 @@ declare_node!(
                 label: None,
                 mapped_at_creation: false,
             });
-    
+
             let render_pipeline = render_device.create_render_pipeline(&RawRenderPipelineDescriptor {
                 label: Some("Render Pipeline"),
                 layout: Some(&pipeline_layout),
@@ -236,9 +237,9 @@ declare_node!(
             let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Command Encoder Descriptor"),
             });
-    
+
             render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[self.triangle_color .x, self.triangle_color .y, self.triangle_color .z, self.triangle_color .w]));
-    
+
             {
                 let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Render Pass"),
@@ -254,14 +255,14 @@ declare_node!(
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
-    
+
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_vertex_buffer(0, *self.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(*self.index_buffer.slice(..), IndexFormat::Uint16);
                 render_pass.set_bind_group(0, &self.bind_group, &[]);
                 render_pass.draw(0..self.num_vertices, 0..1);
             }
-    
+
             encoder.copy_texture_to_buffer(
                 ImageCopyTextureBase {
                     aspect: TextureAspect::All,
@@ -279,32 +280,32 @@ declare_node!(
                 },
                 self.texture_extents.clone(),
             );
-    
+
             render_queue.submit(Some(encoder.finish()));
-    
+
             let image = {
                 let buffer_slice = &self.output_buffer.slice(..);
-    
+
                 let (s, r) = crossbeam_channel::unbounded::<()>();
-    
+
                 buffer_slice.map_async(MapMode::Read, move |r| match r {
                     Ok(_) => {
                         s.send(()).expect("Failed to send map update");
                     }
                     Err(err) => panic!("Failed to map buffer {err}"),
                 });
-    
+
                 // TODO: We have to figure out how to make this yield instead of just blocking here
                 // Otherwise the task is not cancellable
                 // BUT
                 // in the event that we cancel...
                 // ... we need some way to unmap the buffer I think.
                 render_device.poll(Maintain::wait()).panic_on_timeout();
-    
+
                 r.recv().expect("Failed to receive map_async message");
-    
+
                 let buffer: &[u8] = &buffer_slice.get_mapped_range();
-    
+
                 Image::new_fill(
                     self.texture_extents.clone(),
                     TextureDimension::D2,
@@ -313,7 +314,7 @@ declare_node!(
                     RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
                 )
             };
-    
+
             self.output_buffer.unmap();
             self.output_image = Some(image);
         }

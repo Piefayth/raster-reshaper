@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{color::palettes::css::ORANGE, prelude::*, sprite::{Material2d, Mesh2dHandle}};
 use bevy_asset_loader::{
     asset_collection::AssetCollection,
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
@@ -19,13 +19,30 @@ impl Plugin for AssetPlugin {
             )
             .add_systems(
                 OnEnter(GameState::AssetProcessing),
-                (done_processsing_assets),
+                (generate_meshes, done_processsing_assets),
             );
     }
 }
 
 fn done_processsing_assets(mut next_state: ResMut<NextState<GameState>>) {
     next_state.set(GameState::Setup);
+}
+
+fn generate_meshes(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let canvas_quad =  Mesh2dHandle(meshes.add(Rectangle::from_size(Vec2::splat(1000000.))));
+    let canvas_quad_material = materials.add(ColorMaterial {
+        color: ORANGE.into(),
+        ..default()
+    });
+
+    commands.insert_resource(GeneratedMeshes {
+        canvas_quad,
+        canvas_quad_material
+    });
 }
 
 #[derive(AssetCollection, Resource)]
@@ -40,4 +57,10 @@ pub struct ShaderAssets {
 pub struct ImageAssets {
     #[asset(path = "images/sp.png")]
     pub sp: Handle<Image>,
+}
+
+#[derive(Resource)]
+pub struct GeneratedMeshes {
+    pub canvas_quad: Mesh2dHandle,
+    pub canvas_quad_material: Handle<ColorMaterial>,
 }
