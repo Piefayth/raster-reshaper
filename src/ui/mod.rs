@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
 };
 use bevy_mod_picking::prelude::Pickable;
-use context_menu::{cancel_context_menu, clamp_context_menu_to_window, open_context_menu};
+use context_menu::{cancel_context_menu, clamp_context_menu_to_window, highlight_selection, open_context_menu};
 
 use crate::ApplicationState;
 
@@ -19,7 +19,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    (cancel_context_menu, open_context_menu),
+                    (cancel_context_menu, open_context_menu, highlight_selection),
                     clamp_context_menu_to_window,
                 )
                     .chain()

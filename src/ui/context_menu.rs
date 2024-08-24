@@ -1,17 +1,19 @@
 use bevy::{
-    color::palettes::tailwind::{GRAY_600, GRAY_700, GRAY_900},
+    color::palettes::{css::{BLACK, WHITE}, tailwind::{GRAY_600, GRAY_700, GRAY_800, GRAY_900}},
     ecs::system::EntityCommands,
-    input::{mouse::{MouseButtonInput}},
+    input::{mouse::MouseButtonInput, ButtonState},
     prelude::*, window::PrimaryWindow,
 };
-use bevy_mod_picking::{events::{Down, Pointer}, focus::PickingInteraction, prelude::PointerButton, PickableBundle};
+use bevy_mod_picking::{events::{Down, Out, Over, Pointer}, focus::PickingInteraction, prelude::{Pickable, PointerButton}, PickableBundle};
+
+use crate::asset::FontAssets;
 
 use super::{Spawner, UIContext, UiRoot};
 
 #[derive(Component)]
 pub struct ContextMenu;
 impl ContextMenu {
-    fn spawn<'a>(spawner: &'a mut impl Spawner, cursor_pos: Vec2, ctx: &UIContext) -> EntityCommands<'a> {
+    fn spawn<'a>(spawner: &'a mut impl Spawner, cursor_pos: Vec2, ctx: &UIContext, font: Handle<Font>) -> EntityCommands<'a> {
         let mut ec = spawner.spawn_bundle(NodeBundle {
             style: Style {
                 position_type: PositionType::Absolute,
@@ -20,12 +22,16 @@ impl ContextMenu {
                 width: Val::Px(200.),
                 min_height: Val::Px(20.),
                 border: UiRect::all(Val::Px(1.)),
+                display: Display::Flex,
+                padding: UiRect::all(Val::Px(4.)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.),
                 ..default()
             },
             border_color: GRAY_600.into(),
             border_radius: BorderRadius::all(Val::Px(4.)),
             z_index: ZIndex::Global(1000000000),
-            background_color: GRAY_700.into(),
+            background_color: GRAY_800.into(),
             ..default()
         });
 
@@ -36,7 +42,11 @@ impl ContextMenu {
 
         match ctx {
             UIContext::NodeEditArea => {
-                // TODO: Add the children...
+                ec.with_children(|child_builder| {
+                    ContextMenuEntry::spawn(child_builder, "test", font.clone());
+                    ContextMenuEntry::spawn(child_builder, "test2", font.clone());
+                    ContextMenuEntry::spawn(child_builder, "test3", font.clone());
+                });
             },
             UIContext::Inspector => {
                 // what children go here
@@ -47,10 +57,50 @@ impl ContextMenu {
     }
 }
 
+#[derive(Component)]
+pub struct ContextMenuEntry;
+impl ContextMenuEntry {
+    fn spawn<'a>(spawner: &'a mut impl Spawner, text: impl Into<String>, font: Handle<Font>) -> EntityCommands<'a> {
+        let mut ec = spawner.spawn_bundle(
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.),
+                    padding: UiRect::all(Val::Px(4.)),
+                    ..default()
+                },
+                border_radius: BorderRadius::all(Val::Px(4.)),
+                ..default()
+            }
+        );
+
+        ec.with_children(|child_builder| {
+            child_builder.spawn(
+                TextBundle::from_section(text, TextStyle {
+                    font,
+                    font_size: 16.,
+                    color: WHITE.into(),
+                }).with_style(Style {
+                    ..default()
+                })
+            ).insert(Pickable::IGNORE);
+        });
+
+        ec.insert(Pickable {
+            should_block_lower: false,
+            is_hoverable: true,
+        });
+
+        ec.insert(ContextMenuEntry);
+
+        ec
+    }
+}
+
 // Opens the context menu on a right click.
 pub fn open_context_menu(
     mut commands: Commands,
     mut mouse_events: EventReader<Pointer<Down>>,
+    fonts: Res<FontAssets>,
     q_contextualized: Query<&UIContext>,
     q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
     q_ui_root: Query<Entity, With<UiRoot>>,
@@ -89,7 +139,7 @@ pub fn open_context_menu(
         commands
             .entity(ui_root)
             .with_children(|child_builder| {
-                ContextMenu::spawn(child_builder, cursor_position, ctx);
+                ContextMenu::spawn(child_builder, cursor_position, ctx, fonts.deja_vu_sans.clone());
             });
     }
 }
@@ -109,16 +159,17 @@ pub fn cancel_context_menu(
     for event in mouse_events.read() {
         if event.button == MouseButton::Left {
             match event.state {
-                bevy::input::ButtonState::Pressed => {
+                ButtonState::Pressed => {
                     // On left click, if the user is no longer hovering the context menu, dismiss it.
                     if *context_menu_picking == PickingInteraction::None {
                         commands.entity(context_menu_entity).despawn_recursive()
                     }
                 }
-                bevy::input::ButtonState::Released => {
-                    // TODO: If, somehow, a left release happens but the moouse is not hovering the context menu, close it
-                    // Otherwise, the user is hovering the context menu and we should select the appropriate option?
-                    // Ehhh but we are actually going to need to get those individual entities and check them for picking
+                ButtonState::Released => {
+                    // User left clicked inside the context menu, then released outside.
+                    if *context_menu_picking == PickingInteraction::None {
+                        commands.entity(context_menu_entity).despawn_recursive()
+                    }
                 }
             }
         }
@@ -145,6 +196,41 @@ pub fn clamp_context_menu_to_window(
         if let Val::Px(top) = style.top {
             if top + menu_size.y > window_size.y {
                 style.top = Val::Px(window_size.y - menu_size.y);
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct Highlighted;
+
+pub fn highlight_selection(
+    mut commands: Commands,
+    mut hover_start_events: EventReader<Pointer<Over>>,
+    mut hover_end_events: EventReader<Pointer<Out>>,
+    q_context_menu_entry: Query<(Entity, &ContextMenuEntry)>,
+    mut q_highlighted: Query<Entity, With<Highlighted>>,
+) {
+
+    for event in hover_start_events.read() {
+        if let Ok((entity, _)) = q_context_menu_entry.get(event.target) {
+            if let Ok(previous_highlighted) = q_highlighted.get_single_mut() {
+                commands.entity(previous_highlighted).remove::<Highlighted>();
+            }
+
+            commands.entity(entity).insert(Highlighted);
+            
+            commands.entity(entity).insert(BackgroundColor(Color::srgb(0.8, 0.8, 0.8)));
+        }
+    }
+
+    for event in hover_end_events.read() {
+        if let Ok((entity, _)) = q_context_menu_entry.get(event.target) {
+            if let Ok(highlighted) = q_highlighted.get_single_mut() {
+                if highlighted == entity {
+                    commands.entity(entity).remove::<Highlighted>();
+                    commands.entity(entity).remove::<BackgroundColor>();
+                }
             }
         }
     }

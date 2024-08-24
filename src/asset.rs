@@ -15,7 +15,8 @@ impl Plugin for AssetPlugin {
                 LoadingState::new(ApplicationState::AssetLoading)
                     .continue_to_state(ApplicationState::AssetProcessing)
                     .load_collection::<ShaderAssets>()
-                    .load_collection::<ImageAssets>(),
+                    .load_collection::<ImageAssets>()
+                    .load_collection::<FontAssets>(),
             )
             .add_systems(
                 OnEnter(ApplicationState::AssetProcessing),
@@ -43,6 +44,15 @@ fn generate_meshes(
         canvas_quad,
         canvas_quad_material
     });
+}
+
+#[derive(AssetCollection, Resource)]
+pub struct FontAssets {
+    #[asset(path = "fonts/DejaVuSans.ttf")]
+    pub deja_vu_sans: Handle<Font>,
+
+    #[asset(path = "fonts/DejaVuSans-Bold.ttf")]
+    pub deja_vu_sans_bold: Handle<Font>,
 }
 
 #[derive(AssetCollection, Resource)]
