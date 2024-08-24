@@ -18,7 +18,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::{GeneratedMeshes, ShaderAssets}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, TriggerProcessPipeline}, nodes::{color::ColorNode, example::ExampleNode, Node, NodeDisplay, NodeTrait}, ui::context_menu::OpenContextMenu, ApplicationState
+    asset::{GeneratedMeshes, ShaderAssets}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, TriggerProcessPipeline}, nodes::{color::ColorNode, example::ExampleNode, Node, NodeDisplay, NodeTrait}, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -59,19 +59,7 @@ fn setup_scene(
             material: meshes.canvas_quad_material.clone(),
             transform: Transform::from_xyz(0., 0., -1000.),
             ..default()
-        })
-        .insert(On::<Pointer<Click>>::target_commands_mut(  // do we like adding this here? what are the alternatives? bundles?
-            |click, click_commands| {
-                match click.button {
-                    PointerButton::Secondary => {
-                        click_commands.commands().trigger(OpenContextMenu {
-                            target: click.target,
-                        })
-                    }
-                    _ => (),
-                };
-            },
-        ));
+        });
 }
 
 #[derive(Resource, Deref, Clone)]

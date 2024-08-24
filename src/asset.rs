@@ -1,4 +1,4 @@
-use bevy::{color::palettes::css::ORANGE, prelude::*, sprite::{Material2d, Mesh2dHandle}};
+use bevy::{color::palettes::tailwind::{SLATE_800, SLATE_900}, prelude::*, sprite::{Material2d, Mesh2dHandle}};
 use bevy_asset_loader::{
     asset_collection::AssetCollection,
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
@@ -35,7 +35,7 @@ fn generate_meshes(
 ) {
     let canvas_quad =  Mesh2dHandle(meshes.add(Rectangle::from_size(Vec2::splat(1000000.))));
     let canvas_quad_material = materials.add(ColorMaterial {
-        color: ORANGE.into(),
+        color: SLATE_800.into(),
         ..default()
     });
 
