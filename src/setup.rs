@@ -43,7 +43,7 @@ fn setup_scene(
     commands.spawn(Camera2dBundle {
         projection: OrthographicProjection {
             near: -1001.,
-            far: 1001.,
+            far: 100001.,
             ..default()
         },
         ..default()

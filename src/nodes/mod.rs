@@ -4,7 +4,7 @@ pub mod fields;
 pub mod macros;
 pub mod shared;
 
-use bevy::{math::VectorSpace, prelude::*, render::render_resource::Source};
+use bevy::{color::palettes::{css::MAGENTA, tailwind::{BLUE_600, GRAY_200}}, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::MaterialMesh2dBundle};
 use color::ColorNode;
 use example::ExampleNode;
 use fields::Field;
@@ -13,7 +13,7 @@ use petgraph::graph::NodeIndex;
 use wgpu::TextureFormat;
 
 use crate::{
-    asset::ShaderAssets,
+    asset::{GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE},
     graph::{DisjointPipelineGraph, TriggerProcessPipeline},
     setup::{CustomGpuDevice, CustomGpuQueue},
 };
@@ -22,7 +22,7 @@ pub struct NodePlugin;
 
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
-        app.observe(spawn_requested_nodes);
+        app.observe(spawn_requested_node);
     }
 }
 
@@ -55,7 +55,7 @@ declare_node_enum_and_impl_trait! {
     }
 }
 
-fn spawn_requested_nodes(
+fn spawn_requested_node(
     trigger: Trigger<RequestSpawnNode>,
     mut commands: Commands,
     camera_query: Query<(&Camera, &GlobalTransform)>,
@@ -64,9 +64,22 @@ fn spawn_requested_nodes(
     shader_handles: Res<ShaderAssets>,
     shaders: Res<Assets<Shader>>,
     mut images: ResMut<Assets<Image>>,
+    mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
+    meshes: Res<GeneratedMeshes>,
+    mut node_count: Local<u32>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let (camera, camera_transform) = camera_query.single();
+    let world_position = match camera.viewport_to_world(camera_transform, trigger.event().position)
+    {
+        Some(p) => p,
+        None => return, // Just bail out of spawning if we don't have a valid world pos
+    }
+    .origin
+    .truncate()
+    .extend(*node_count as f32); // count-based z-index so that nodes always have unique z
+
+    *node_count += 1;
 
     let node_entity = commands.spawn(NodeDisplay { index: 0.into() }).id();
 
@@ -86,28 +99,33 @@ fn spawn_requested_nodes(
             pipeline.graph.add_node(Node::ExampleNode(example_node))
         }
         RequestSpawnNodeKind::ColorNode => {
-            let color_node = ColorNode::new(node_entity, Vec4::new(1., 1., 0., 1.));
+            let color_node = ColorNode::new(node_entity, MAGENTA.into());
             pipeline.graph.add_node(Node::ColorNode(color_node))
         }
     };
 
-    match camera.viewport_to_world(camera_transform, trigger.event().position) {
-        Some(ray) => {
-            commands
-                .entity(node_entity)
-                .insert(NodeDisplay {
-                    index: spawned_node_index,
-                })
-                .insert(SpriteBundle {
-                    transform: Transform::from_translation(ray.origin.truncate().extend(0.)),
-                    texture: images.add(Image::transparent()),
-                    ..default()
-                });
-        }
-        None => {
-            commands.entity(node_entity).despawn();
-        }
-    };
+    let node = pipeline.graph.node_weight(spawned_node_index).unwrap();
+
+    commands
+        .entity(node_entity)
+        .insert(NodeDisplay {
+            index: spawned_node_index,
+        })
+        .insert(MaterialMesh2dBundle {
+            transform: Transform::from_translation(world_position),
+            mesh: meshes.node_display_quad.clone(),
+            material: node_display_materials.add(NodeDisplayMaterial {
+                title_bar_color: BLUE_600.into(),
+                node_texture: images.add(Image::transparent()),
+                title_bar_height: NODE_TITLE_BAR_SIZE,
+                node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
+                background_color: match node {
+                    Node::ColorNode(cn) => cn.color,
+                    _ => GRAY_200.into()
+                }
+            }),
+            ..default()
+        });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...

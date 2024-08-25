@@ -1,16 +1,10 @@
 use std::time::Instant;
 
 use crate::{
-    nodes::{InputId, Node, NodeDisplay, NodeTrait, OutputId},
-    ApplicationState,
+    asset::NodeDisplayMaterial, nodes::{InputId, Node, NodeDisplay, NodeTrait, OutputId}, setup::{CustomGpuDevice, CustomGpuQueue}, ApplicationState
 };
-use crate::{CustomGpuDevice, CustomGpuQueue};
 use bevy::{
-    app::App,
-    asset::{Assets, Handle},
-    prelude::*,
-    tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task},
-    utils::{HashMap, HashSet},
+    app::App, asset::{Assets, Handle}, color::palettes::css::RED, prelude::*, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
@@ -63,8 +57,9 @@ fn update_nodes(
     _trigger: Trigger<GraphWasUpdated>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
-    mut q_initialized_nodes: Query<(&mut NodeDisplay, &Handle<Image>), With<Sprite>>,
+    mut q_initialized_nodes: Query<(&mut NodeDisplay, &Handle<NodeDisplayMaterial>)>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<NodeDisplayMaterial>>,
 ) {
     let graph = &q_pipeline.single().graph;
 
@@ -72,10 +67,11 @@ fn update_nodes(
         let probably_node = q_initialized_nodes.get_mut(node.entity());
 
         match probably_node {
-            Ok((mut node_display, image_handle)) => {
+            Ok((mut node_display, material_handle)) => {
                 node_display.index = idx; // The NodeIndex could've changed if the graph was modified.
 
-                let old_image = images.get_mut(image_handle.id()).expect(
+                let material = materials.get_mut(material_handle.id()).unwrap();
+                let old_image = images.get_mut(material.node_texture.id()).expect(
                     "Found an image handle on a node sprite that does not reference a known image.",
                 );
                 match &node {
@@ -215,7 +211,7 @@ fn process_pipeline(
                     render_queue.clone(),
                 )
                 .boxed();
-
+                
                 subtasks.push(subtask);
             }
         }

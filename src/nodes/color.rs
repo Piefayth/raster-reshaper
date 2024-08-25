@@ -8,13 +8,13 @@ declare_node!(
     name: ColorNode,
     fields: {
         #[entity] entity: Entity,
-        #[output] color: Vec4,
+        #[output] color: LinearRgba,
     },
 
     methods: {
         new(
             entity: Entity,
-            color: Vec4
+            color: LinearRgba
         ) -> Self {
             Self {
                 entity,

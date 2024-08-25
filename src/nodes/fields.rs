@@ -10,6 +10,7 @@ define_field_enum! {
         U32(u32),
         F32(f32),
         Vec4(Vec4),
+        LinearRgba(LinearRgba),
         Extent3d(Extent3d),
         TextureFormat(TextureFormat),
         Image(Option<Image>)
@@ -96,6 +97,18 @@ impl TryFrom<Field> for Image {
             Ok(v)
         } else {
             Err(format!("Cannot convert {:?} to Image", value))
+        }
+    }
+}
+
+impl TryFrom<Field> for LinearRgba {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::LinearRgba(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to LinearRgba", value))
         }
     }
 }

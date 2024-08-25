@@ -2,8 +2,6 @@ use bevy::{app::App, prelude::*, DefaultPlugins};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_picking::DefaultPickingPlugins;
 
-use setup::{CustomGpuDevice, CustomGpuQueue};
-
 mod asset;
 mod graph;
 mod nodes;
