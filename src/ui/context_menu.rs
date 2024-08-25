@@ -4,11 +4,30 @@ use bevy::{
     input::{mouse::MouseButtonInput, ButtonState},
     prelude::*, window::PrimaryWindow,
 };
-use bevy_mod_picking::{events::{Down, Out, Over, Pointer}, focus::PickingInteraction, prelude::{Pickable, PointerButton}, PickableBundle};
+use bevy_mod_picking::{events::{Click, Down, Out, Over, Pointer}, focus::PickingInteraction, prelude::{On, Pickable, PointerButton}, PickableBundle};
 
-use crate::asset::FontAssets;
+use crate::{asset::FontAssets, nodes::RequestSpawnNode, ApplicationState};
 
 use super::{Spawner, UIContext, UiRoot};
+
+pub struct ContextMenuPlugin;
+
+impl Plugin for ContextMenuPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            .add_systems(
+                Update,
+                (
+                    (cancel_context_menu, open_context_menu, highlight_selection),
+                    clamp_context_menu_to_window,
+                )
+                    .chain()
+                    .run_if(in_state(ApplicationState::MainLoop)),
+            );
+            
+        app.observe(on_made_any_context_menu_selection);
+    }
+}
 
 #[derive(Component)]
 pub struct ContextMenu;
@@ -43,9 +62,8 @@ impl ContextMenu {
         match ctx {
             UIContext::NodeEditArea => {
                 ec.with_children(|child_builder| {
-                    ContextMenuEntry::spawn(child_builder, "test", font.clone());
-                    ContextMenuEntry::spawn(child_builder, "test2", font.clone());
-                    ContextMenuEntry::spawn(child_builder, "test3", font.clone());
+                    ContextMenuEntry::spawn(child_builder, "Example", font.clone(), RequestSpawnNode::ExampleNode);
+                    ContextMenuEntry::spawn(child_builder, "Color", font.clone(), RequestSpawnNode::ColorNode);
                 });
             },
             UIContext::Inspector => {
@@ -60,7 +78,7 @@ impl ContextMenu {
 #[derive(Component)]
 pub struct ContextMenuEntry;
 impl ContextMenuEntry {
-    fn spawn<'a>(spawner: &'a mut impl Spawner, text: impl Into<String>, font: Handle<Font>) -> EntityCommands<'a> {
+    fn spawn<'a>(spawner: &'a mut impl Spawner, text: impl Into<String>, font: Handle<Font>, event: impl Event + Clone) -> EntityCommands<'a> {
         let mut ec = spawner.spawn_bundle(
             NodeBundle {
                 style: Style {
@@ -91,6 +109,14 @@ impl ContextMenuEntry {
         });
 
         ec.insert(ContextMenuEntry);
+
+        let this_entity = ec.id();
+        ec.insert(On::<Pointer<Click>>::commands_mut(move |_click, commands| {
+            commands.trigger(event.clone());
+            commands.trigger(ContextMenuSelectionMade {
+                selected_entry: this_entity,
+            });
+        }));
 
         ec
     }
@@ -174,6 +200,25 @@ pub fn cancel_context_menu(
             }
         }
     }
+}
+
+#[derive(Event)]
+pub struct ContextMenuSelectionMade {
+    selected_entry: Entity,
+}
+
+pub fn on_made_any_context_menu_selection(
+    trigger: Trigger<ContextMenuSelectionMade>,
+    mut commands: Commands,
+    q_context_menu_entries: Query<Entity, With<ContextMenuEntry>>, 
+    q_context_menu: Query<Entity, With<ContextMenu>>,
+) {
+    let _ = q_context_menu_entries.get(trigger.event().selected_entry).unwrap();
+    // TODO: Little confirm animation, like how on MacOS your selcted option blinks once
+
+    let context_menu_entity = q_context_menu.single();
+
+    commands.entity(context_menu_entity).despawn_recursive();
 }
 
 

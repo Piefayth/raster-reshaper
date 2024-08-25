@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
 };
 use bevy_mod_picking::prelude::Pickable;
-use context_menu::{cancel_context_menu, clamp_context_menu_to_window, highlight_selection, open_context_menu};
+use context_menu::{cancel_context_menu, clamp_context_menu_to_window, highlight_selection, on_made_any_context_menu_selection, open_context_menu, ContextMenuPlugin};
 
 use crate::ApplicationState;
 
@@ -15,16 +15,9 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(ApplicationState::Setup), ui_setup)
-            .add_systems(
-                Update,
-                (
-                    (cancel_context_menu, open_context_menu, highlight_selection),
-                    clamp_context_menu_to_window,
-                )
-                    .chain()
-                    .run_if(in_state(ApplicationState::MainLoop)),
-            );
+        app.add_plugins(ContextMenuPlugin);
+        
+        app.add_systems(OnEnter(ApplicationState::Setup), ui_setup);
     }
 }
 

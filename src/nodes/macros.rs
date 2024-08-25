@@ -1,5 +1,4 @@
 pub mod macros {
-
     macro_rules! declare_node {
         (
             name: $node_name:ident,
@@ -139,7 +138,12 @@ pub mod macros {
             $vis enum $enum_name {
                 $($variant($node_type)),*
             }
-    
+            
+            #[derive(Event, Debug, Clone)]
+            pub enum RequestSpawnNode {
+                $($variant,)*
+            }
+
             impl NodeTrait for $enum_name {
                 fn get_input(&self, id: InputId) -> Option<Field> {
                     match self {
