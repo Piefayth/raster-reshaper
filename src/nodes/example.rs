@@ -24,7 +24,9 @@ use bevy::{
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
 use super::{
-    macros::macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId
+    macros::macros::declare_node,
+    shared::{Vertex, U32_SIZE},
+    Field, InputId,
 };
 
 declare_node!(
@@ -49,8 +51,8 @@ declare_node!(
         new(
             entity: Entity,
             render_device: &CustomGpuDevice,
-            fragment_source: &Cow<'static, str>,
-            vert_source: &Cow<'static, str>,
+            fragment_source: &String,
+            vert_source: &String,
             texture_size: u32,
             texture_format: TextureFormat,
         ) -> Self {

@@ -1,9 +1,8 @@
-
+use super::macros::macros::define_field_enum;
 use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat},
 };
-use super::{macros::macros::define_field_enum};
 
 define_field_enum! {
     #[derive(Clone, Debug)]

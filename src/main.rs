@@ -1,8 +1,4 @@
-use bevy::{
-    app::App,
-    prelude::*,
-    DefaultPlugins,
-};
+use bevy::{app::App, prelude::*, DefaultPlugins};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_picking::DefaultPickingPlugins;
 

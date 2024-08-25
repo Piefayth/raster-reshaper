@@ -1,12 +1,25 @@
 use bevy::{
-    color::palettes::{css::{BLACK, WHITE}, tailwind::{GRAY_600, GRAY_700, GRAY_800, GRAY_900}},
+    color::palettes::{
+        css::{BLACK, WHITE},
+        tailwind::{GRAY_600, GRAY_700, GRAY_800, GRAY_900},
+    },
     ecs::system::EntityCommands,
     input::{mouse::MouseButtonInput, ButtonState},
-    prelude::*, window::PrimaryWindow,
+    prelude::*,
+    window::PrimaryWindow,
 };
-use bevy_mod_picking::{events::{Click, Down, Out, Over, Pointer}, focus::PickingInteraction, prelude::{On, Pickable, PointerButton}, PickableBundle};
+use bevy_mod_picking::{
+    events::{Click, Down, Out, Over, Pointer},
+    focus::PickingInteraction,
+    prelude::{On, Pickable, PointerButton},
+    PickableBundle,
+};
 
-use crate::{asset::FontAssets, nodes::RequestSpawnNode, ApplicationState};
+use crate::{
+    asset::FontAssets,
+    nodes::{RequestSpawnNode, RequestSpawnNodeKind},
+    ApplicationState,
+};
 
 use super::{Spawner, UIContext, UiRoot};
 
@@ -14,25 +27,30 @@ pub struct ContextMenuPlugin;
 
 impl Plugin for ContextMenuPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_systems(
-                Update,
-                (
-                    (cancel_context_menu, open_context_menu, highlight_selection),
-                    clamp_context_menu_to_window,
-                )
-                    .chain()
-                    .run_if(in_state(ApplicationState::MainLoop)),
-            );
-            
+        app.add_systems(
+            Update,
+            (
+                (cancel_context_menu, open_context_menu, highlight_selection),
+                clamp_context_menu_to_window,
+            )
+                .chain()
+                .run_if(in_state(ApplicationState::MainLoop)),
+        );
+
         app.observe(on_made_any_context_menu_selection);
     }
 }
 
 #[derive(Component)]
 pub struct ContextMenu;
+
 impl ContextMenu {
-    fn spawn<'a>(spawner: &'a mut impl Spawner, cursor_pos: Vec2, ctx: &UIContext, font: Handle<Font>) -> EntityCommands<'a> {
+    fn spawn<'a>(
+        spawner: &'a mut impl Spawner,
+        cursor_pos: Vec2,
+        ctx: &UIContext,
+        font: Handle<Font>,
+    ) -> EntityCommands<'a> {
         let mut ec = spawner.spawn_bundle(NodeBundle {
             style: Style {
                 position_type: PositionType::Absolute,
@@ -56,21 +74,36 @@ impl ContextMenu {
 
         ec.insert(ContextMenu);
         ec.insert(Name::new("Context Menu"));
-        ec.insert(PickableBundle{..default()});
-
+        ec.insert(PickableBundle { ..default() });
 
         match ctx {
             UIContext::NodeEditArea => {
                 ec.with_children(|child_builder| {
-                    ContextMenuEntry::spawn(child_builder, "Example", font.clone(), RequestSpawnNode::ExampleNode);
-                    ContextMenuEntry::spawn(child_builder, "Color", font.clone(), RequestSpawnNode::ColorNode);
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Example",
+                        font.clone(),
+                        RequestSpawnNode {
+                            position: cursor_pos,
+                            kind: RequestSpawnNodeKind::ExampleNode,
+                        },
+                    );
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Color",
+                        font.clone(),
+                        RequestSpawnNode {
+                            position: cursor_pos,
+                            kind: RequestSpawnNodeKind::ColorNode,
+                        },
+                    );
                 });
-            },
+            }
             UIContext::Inspector => {
                 // what children go here
-            },
+            }
         }
-        
+
         ec
     }
 }
@@ -78,29 +111,36 @@ impl ContextMenu {
 #[derive(Component)]
 pub struct ContextMenuEntry;
 impl ContextMenuEntry {
-    fn spawn<'a>(spawner: &'a mut impl Spawner, text: impl Into<String>, font: Handle<Font>, event: impl Event + Clone) -> EntityCommands<'a> {
-        let mut ec = spawner.spawn_bundle(
-            NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.),
-                    padding: UiRect::all(Val::Px(4.)),
-                    ..default()
-                },
-                border_radius: BorderRadius::all(Val::Px(4.)),
+    fn spawn<'a>(
+        spawner: &'a mut impl Spawner,
+        text: impl Into<String>,
+        font: Handle<Font>,
+        event: impl Event + Clone,
+    ) -> EntityCommands<'a> {
+        let mut ec = spawner.spawn_bundle(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.),
+                padding: UiRect::all(Val::Px(4.)),
                 ..default()
-            }
-        );
+            },
+            border_radius: BorderRadius::all(Val::Px(4.)),
+            ..default()
+        });
 
         ec.with_children(|child_builder| {
-            child_builder.spawn(
-                TextBundle::from_section(text, TextStyle {
-                    font,
-                    font_size: 16.,
-                    color: WHITE.into(),
-                }).with_style(Style {
-                    ..default()
-                })
-            ).insert(Pickable::IGNORE);
+            child_builder
+                .spawn(
+                    TextBundle::from_section(
+                        text,
+                        TextStyle {
+                            font,
+                            font_size: 16.,
+                            color: WHITE.into(),
+                        },
+                    )
+                    .with_style(Style { ..default() }),
+                )
+                .insert(Pickable::IGNORE);
         });
 
         ec.insert(Pickable {
@@ -111,12 +151,14 @@ impl ContextMenuEntry {
         ec.insert(ContextMenuEntry);
 
         let this_entity = ec.id();
-        ec.insert(On::<Pointer<Click>>::commands_mut(move |_click, commands| {
-            commands.trigger(event.clone());
-            commands.trigger(ContextMenuSelectionMade {
-                selected_entry: this_entity,
-            });
-        }));
+        ec.insert(On::<Pointer<Click>>::commands_mut(
+            move |_click, commands| {
+                commands.trigger(event.clone());
+                commands.trigger(ContextMenuSelectionMade {
+                    selected_entry: this_entity,
+                });
+            },
+        ));
 
         ec
     }
@@ -142,7 +184,7 @@ pub fn open_context_menu(
         None => return,
     };
 
-    // Despawn the old context menu if it exists and is not being hovered 
+    // Despawn the old context menu if it exists and is not being hovered
     if let Ok((old_context_menu_entity, interaction)) = q_context_menu.get_single() {
         if matches!(interaction, PickingInteraction::None) {
             commands.entity(old_context_menu_entity).despawn_recursive();
@@ -154,19 +196,23 @@ pub fn open_context_menu(
     let cursor_position = if let Ok(window) = q_window.get_single() {
         window.cursor_position()
     } else {
-        return // Can't spawn the menu without the cursor position
-    }.unwrap();
+        return; // Can't spawn the menu without the cursor position
+    }
+    .unwrap();
 
     // Only spawn the context menu for entities that have a UIContext
     if q_contextualized.contains(right_click_event.target) {
         let ui_root = q_ui_root.single();
         let ctx = q_contextualized.get(right_click_event.target).unwrap();
 
-        commands
-            .entity(ui_root)
-            .with_children(|child_builder| {
-                ContextMenu::spawn(child_builder, cursor_position, ctx, fonts.deja_vu_sans.clone());
-            });
+        commands.entity(ui_root).with_children(|child_builder| {
+            ContextMenu::spawn(
+                child_builder,
+                cursor_position,
+                ctx,
+                fonts.deja_vu_sans.clone(),
+            );
+        });
     }
 }
 
@@ -207,20 +253,24 @@ pub struct ContextMenuSelectionMade {
     selected_entry: Entity,
 }
 
+// Shared logic for any successful context menu selection.
+// Per-selection logic fires a selection-specific event, handled by its own event handler.
 pub fn on_made_any_context_menu_selection(
     trigger: Trigger<ContextMenuSelectionMade>,
     mut commands: Commands,
-    q_context_menu_entries: Query<Entity, With<ContextMenuEntry>>, 
+    q_context_menu_entries: Query<Entity, With<ContextMenuEntry>>,
     q_context_menu: Query<Entity, With<ContextMenu>>,
 ) {
-    let _ = q_context_menu_entries.get(trigger.event().selected_entry).unwrap();
+    let _ = q_context_menu_entries
+        .get(trigger.event().selected_entry)
+        .unwrap();
+
     // TODO: Little confirm animation, like how on MacOS your selcted option blinks once
 
     let context_menu_entity = q_context_menu.single();
 
     commands.entity(context_menu_entity).despawn_recursive();
 }
-
 
 pub fn clamp_context_menu_to_window(
     mut query: Query<(&mut Style, &Node), With<ContextMenu>>,
@@ -256,16 +306,19 @@ pub fn highlight_selection(
     q_context_menu_entry: Query<(Entity, &ContextMenuEntry)>,
     mut q_highlighted: Query<Entity, With<Highlighted>>,
 ) {
-
     for event in hover_start_events.read() {
         if let Ok((entity, _)) = q_context_menu_entry.get(event.target) {
             if let Ok(previous_highlighted) = q_highlighted.get_single_mut() {
-                commands.entity(previous_highlighted).remove::<Highlighted>();
+                commands
+                    .entity(previous_highlighted)
+                    .remove::<Highlighted>();
             }
 
             commands.entity(entity).insert(Highlighted);
-            
-            commands.entity(entity).insert(BackgroundColor(Color::srgb(0.8, 0.8, 0.8)));
+
+            commands
+                .entity(entity)
+                .insert(BackgroundColor(Color::srgb(0.8, 0.8, 0.8)));
         }
     }
 

@@ -115,7 +115,7 @@ pub mod macros {
             $vis enum $name {
                 $($variant($type),)*
             }
-    
+
             $(
                 impl From<$type> for $name {
                     fn from(value: $type) -> Self {
@@ -138,10 +138,16 @@ pub mod macros {
             $vis enum $enum_name {
                 $($variant($node_type)),*
             }
-            
+
             #[derive(Event, Debug, Clone)]
-            pub enum RequestSpawnNode {
+            pub enum RequestSpawnNodeKind {
                 $($variant,)*
+            }
+
+            #[derive(Event, Debug, Clone)]
+            pub struct RequestSpawnNode {
+                pub position: Vec2,
+                pub kind: RequestSpawnNodeKind,
             }
 
             impl NodeTrait for $enum_name {
@@ -150,43 +156,43 @@ pub mod macros {
                         $($enum_name::$variant(n) => n.get_input(id),)*
                     }
                 }
-    
+
                 fn get_output(&self, id: OutputId) -> Option<Field> {
                     match self {
                         $($enum_name::$variant(n) => n.get_output(id),)*
                     }
                 }
-    
+
                 fn set_input(&mut self, id: InputId, value: Field) -> Result<(), String> {
                     match self {
                         $($enum_name::$variant(n) => n.set_input(id, value),)*
                     }
                 }
-    
+
                 fn set_output(&mut self, id: OutputId, value: Field) -> Result<(), String> {
                     match self {
                         $($enum_name::$variant(n) => n.set_output(id, value),)*
                     }
                 }
-    
+
                 fn input_fields(&self) -> &[InputId] {
                     match self {
                         $($enum_name::$variant(n) => n.input_fields(),)*
                     }
                 }
-    
+
                 fn output_fields(&self) -> &[OutputId] {
                     match self {
                         $($enum_name::$variant(n) => n.output_fields(),)*
                     }
                 }
-    
+
                 async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
                     match self {
                         $($enum_name::$variant(n) => n.process(render_device, render_queue).await,)*
                     }
                 }
-    
+
                 fn entity(&self) -> Entity {
                     match self {
                         $($enum_name::$variant(n) => n.entity(),)*
@@ -195,10 +201,8 @@ pub mod macros {
             }
         }
     }
-    
 
     pub(crate) use declare_node;
-    pub(crate) use define_field_enum;
     pub(crate) use declare_node_enum_and_impl_trait;
+    pub(crate) use define_field_enum;
 }
-

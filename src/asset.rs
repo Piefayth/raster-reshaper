@@ -1,4 +1,8 @@
-use bevy::{color::palettes::tailwind::{SLATE_800, SLATE_900}, prelude::*, sprite::{Material2d, Mesh2dHandle}};
+use bevy::{
+    color::palettes::tailwind::{SLATE_800, SLATE_900},
+    prelude::*,
+    sprite::{Material2d, Mesh2dHandle},
+};
 use bevy_asset_loader::{
     asset_collection::AssetCollection,
     loading_state::{config::ConfigureLoadingState, LoadingState, LoadingStateAppExt},
@@ -10,18 +14,17 @@ pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_loading_state(
-                LoadingState::new(ApplicationState::AssetLoading)
-                    .continue_to_state(ApplicationState::AssetProcessing)
-                    .load_collection::<ShaderAssets>()
-                    .load_collection::<ImageAssets>()
-                    .load_collection::<FontAssets>(),
-            )
-            .add_systems(
-                OnEnter(ApplicationState::AssetProcessing),
-                (generate_meshes, done_processsing_assets),
-            );
+        app.add_loading_state(
+            LoadingState::new(ApplicationState::AssetLoading)
+                .continue_to_state(ApplicationState::AssetProcessing)
+                .load_collection::<ShaderAssets>()
+                .load_collection::<ImageAssets>()
+                .load_collection::<FontAssets>(),
+        )
+        .add_systems(
+            OnEnter(ApplicationState::AssetProcessing),
+            (generate_meshes, done_processsing_assets),
+        );
     }
 }
 
@@ -34,7 +37,7 @@ fn generate_meshes(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let canvas_quad =  Mesh2dHandle(meshes.add(Rectangle::from_size(Vec2::splat(1000000.))));
+    let canvas_quad = Mesh2dHandle(meshes.add(Rectangle::from_size(Vec2::splat(1000000.))));
     let canvas_quad_material = materials.add(ColorMaterial {
         color: SLATE_800.into(),
         ..default()
@@ -42,7 +45,7 @@ fn generate_meshes(
 
     commands.insert_resource(GeneratedMeshes {
         canvas_quad,
-        canvas_quad_material
+        canvas_quad_material,
     });
 }
 
