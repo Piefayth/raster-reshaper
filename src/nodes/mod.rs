@@ -23,6 +23,7 @@ pub struct NodePlugin;
 
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Update, handle_node_drag.run_if(in_state(ApplicationState::MainLoop)));
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
     }
@@ -62,6 +63,7 @@ struct NodeZIndexToTop {
     node: Entity,
 }
 
+// Triggered primarily on node drag start to bring it to the front
 fn node_z_to_top(
     mut trigger: Trigger<NodeZIndexToTop>,
     mut query: Query<(Entity, &mut Transform), With<NodeDisplay>>,
@@ -87,6 +89,30 @@ fn node_z_to_top(
         }
     }
 }
+
+fn handle_node_drag(
+    mut query: Query<&mut Transform, With<NodeDisplay>>,
+    camera_query: Query<&OrthographicProjection>,
+    mut drag_events: EventReader<Pointer<Drag>>,
+) {
+    // Get the camera's scale from the OrthographicProjection
+    let projection = camera_query.single();
+    let camera_scale = projection.scale;
+
+    for event in drag_events.read() {
+        if let Ok(mut transform) = query.get_mut(event.target) {
+            // Apply the inverse of the camera's scale to the drag delta
+            let scaled_delta = Vec3::new(
+                event.delta.x * camera_scale,
+                -event.delta.y * camera_scale, // Note the negative y to match your original behavior
+                0.0
+            );
+            
+            transform.translation += scaled_delta;
+        }
+    }
+}
+
 
 fn spawn_requested_node(
     trigger: Trigger<RequestSpawnNode>,
@@ -166,12 +192,6 @@ fn spawn_requested_node(
                 commands.trigger(NodeZIndexToTop {
                     node: event.target,
                 })
-            }),
-        )
-        .insert(
-            On::<Pointer<Drag>>::target_component_mut::<Transform>(|drag, transform| {
-                transform.translation.x += drag.delta.x;
-                transform.translation.y -= drag.delta.y;
             }),
         );
 
