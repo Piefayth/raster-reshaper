@@ -5,6 +5,7 @@ pub mod macros;
 pub mod shared;
 
 use bevy::{color::palettes::{css::{BLACK, MAGENTA}, tailwind::{BLUE_600, GRAY_200, GRAY_400}}, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::MaterialMesh2dBundle};
+use bevy_mod_picking::{events::{Drag, DragStart, Pointer}, prelude::On};
 use color::ColorNode;
 use example::ExampleNode;
 use fields::Field;
@@ -15,7 +16,7 @@ use wgpu::TextureFormat;
 use crate::{
     asset::{GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE},
     graph::{DisjointPipelineGraph, TriggerProcessPipeline},
-    setup::{CustomGpuDevice, CustomGpuQueue},
+    setup::{CustomGpuDevice, CustomGpuQueue}, ApplicationState,
 };
 
 pub struct NodePlugin;
@@ -23,6 +24,7 @@ pub struct NodePlugin;
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.observe(spawn_requested_node);
+        app.observe(node_z_to_top);
     }
 }
 
@@ -52,6 +54,37 @@ declare_node_enum_and_impl_trait! {
     pub enum Node {
         ExampleNode(ExampleNode),
         ColorNode(ColorNode),
+    }
+}
+
+#[derive(Event)]
+struct NodeZIndexToTop {
+    node: Entity,
+}
+
+fn node_z_to_top(
+    mut trigger: Trigger<NodeZIndexToTop>,
+    mut query: Query<(Entity, &mut Transform), With<NodeDisplay>>,
+) {
+    let mut highest_z = f32::NEG_INFINITY;
+
+    // First pass: Find the highest Z coordinate
+    for (_, transform) in query.iter() {
+        if transform.translation.z > highest_z {
+            highest_z = transform.translation.z;
+        }
+    }
+
+    // Update the Z coordinate of the event's node
+    if let Ok((_, mut transform)) = query.get_mut(trigger.event().node) {
+        transform.translation.z = highest_z + 1.0;
+    }
+
+    // Second pass: Decrement Z coordinate of nodes with higher or equal Z
+    for (entity, mut transform) in query.iter_mut() {
+        if entity != trigger.event().node && transform.translation.z >= highest_z {
+            transform.translation.z -= 1.0;
+        }
     }
 }
 
@@ -127,7 +160,20 @@ fn spawn_requested_node(
                 border_color: GRAY_400.into(),
             }),
             ..default()
-        });
+        })
+        .insert(
+            On::<Pointer<DragStart>>::commands_mut(|event, commands| {
+                commands.trigger(NodeZIndexToTop {
+                    node: event.target,
+                })
+            }),
+        )
+        .insert(
+            On::<Pointer<Drag>>::target_component_mut::<Transform>(|drag, transform| {
+                transform.translation.x += drag.delta.x;
+                transform.translation.y -= drag.delta.y;
+            }),
+        );
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
