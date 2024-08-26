@@ -4,8 +4,21 @@ pub mod fields;
 pub mod macros;
 pub mod shared;
 
-use bevy::{color::palettes::{css::{BLACK, MAGENTA}, tailwind::{BLUE_600, GRAY_200, GRAY_400}}, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::MaterialMesh2dBundle};
-use bevy_mod_picking::{events::{Drag, DragStart, Pointer}, prelude::On};
+use bevy::{
+    color::palettes::{
+        css::{BLACK, MAGENTA, ORANGE},
+        tailwind::{BLUE_600, GRAY_200, GRAY_400},
+    },
+    math::VectorSpace,
+    prelude::*,
+    render::render_resource::Source,
+    sprite::MaterialMesh2dBundle,
+};
+use bevy_mod_picking::{
+    events::{Click, Down, Drag, DragStart, Pointer},
+    focus::PickingInteraction,
+    prelude::{On, PointerButton},
+};
 use color::ColorNode;
 use example::ExampleNode;
 use fields::Field;
@@ -14,16 +27,25 @@ use petgraph::graph::NodeIndex;
 use wgpu::TextureFormat;
 
 use crate::{
-    asset::{GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE},
+    asset::{
+        GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION,
+        NODE_TITLE_BAR_SIZE,
+    },
     graph::{DisjointPipelineGraph, TriggerProcessPipeline},
-    setup::{CustomGpuDevice, CustomGpuQueue}, ApplicationState,
+    setup::{CustomGpuDevice, CustomGpuQueue},
+    ApplicationState,
 };
 
 pub struct NodePlugin;
 
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_node_drag.run_if(in_state(ApplicationState::MainLoop)));
+        app.add_systems(
+            Update,
+            ((handle_node_drag, handle_node_focus), update_node_border)
+                .chain()
+                .run_if(in_state(ApplicationState::MainLoop)),
+        );
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
     }
@@ -95,24 +117,72 @@ fn handle_node_drag(
     camera_query: Query<&OrthographicProjection>,
     mut drag_events: EventReader<Pointer<Drag>>,
 ) {
-    // Get the camera's scale from the OrthographicProjection
     let projection = camera_query.single();
     let camera_scale = projection.scale;
 
     for event in drag_events.read() {
+        // TODO: Should we take only the last event so you can't drag two nodes at once?
         if let Ok(mut transform) = query.get_mut(event.target) {
-            // Apply the inverse of the camera's scale to the drag delta
             let scaled_delta = Vec3::new(
                 event.delta.x * camera_scale,
-                -event.delta.y * camera_scale, // Note the negative y to match your original behavior
-                0.0
+                -event.delta.y * camera_scale,
+                0.0,
             );
-            
+
             transform.translation += scaled_delta;
         }
     }
 }
 
+fn update_node_border(
+    mut materials: ResMut<Assets<NodeDisplayMaterial>>,
+    query: Query<(
+        &Handle<NodeDisplayMaterial>,
+        &PickingInteraction,
+        Option<&FocusedNode>,
+    )>,
+) {
+    for (material_handle, interaction, focused) in query.iter() {
+        if let Some(material) = materials.get_mut(material_handle) {
+            if focused.is_some() {
+                material.border_color = material.focus_border_color;
+            } else {
+                match interaction {
+                    PickingInteraction::Hovered => {
+                        material.border_color = material.hover_border_color;
+                    }
+                    _ => {
+                        material.border_color = material.default_border_color;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct FocusedNode;
+
+fn handle_node_focus(
+    mut commands: Commands,
+    mut click_events: EventReader<Pointer<Down>>,
+    focused_query: Query<Entity, With<FocusedNode>>,
+    q_node: Query<Entity, With<NodeDisplay>>,
+) {
+    let maybe_last_left_click = click_events
+        .read()
+        .filter(|click| click.button == PointerButton::Primary && q_node.contains(click.target))
+        .last();
+
+    if let Some(last_left_click) = maybe_last_left_click {
+        for entity in focused_query.iter() {
+            commands.entity(entity).remove::<FocusedNode>();
+        }
+        
+        commands.entity(last_left_click.target).insert(FocusedNode);
+        commands.trigger(NodeZIndexToTop { node: last_left_click.target })
+    }
+}
 
 fn spawn_requested_node(
     trigger: Trigger<RequestSpawnNode>,
@@ -180,20 +250,16 @@ fn spawn_requested_node(
                 node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
                 background_color: match node {
                     Node::ColorNode(cn) => cn.color,
-                    _ => GRAY_200.into()
+                    _ => GRAY_200.into(),
                 },
                 border_width: 2.,
                 border_color: GRAY_400.into(),
+                default_border_color: GRAY_400.into(),
+                hover_border_color: GRAY_200.into(),
+                focus_border_color: ORANGE.into(),
             }),
             ..default()
-        })
-        .insert(
-            On::<Pointer<DragStart>>::commands_mut(|event, commands| {
-                commands.trigger(NodeZIndexToTop {
-                    node: event.target,
-                })
-            }),
-        );
+        });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...

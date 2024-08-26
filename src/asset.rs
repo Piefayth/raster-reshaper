@@ -96,6 +96,10 @@ pub struct NodeDisplayMaterial {
     pub border_width: f32,
     #[uniform(7)]
     pub border_color: LinearRgba,
+
+    pub default_border_color: LinearRgba,
+    pub hover_border_color: LinearRgba,
+    pub focus_border_color: LinearRgba,
 }
 
 impl Material2d for NodeDisplayMaterial {
