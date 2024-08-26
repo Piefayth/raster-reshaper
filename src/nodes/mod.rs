@@ -4,7 +4,7 @@ pub mod fields;
 pub mod macros;
 pub mod shared;
 
-use bevy::{color::palettes::{css::MAGENTA, tailwind::{BLUE_600, GRAY_200}}, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::MaterialMesh2dBundle};
+use bevy::{color::palettes::{css::{BLACK, MAGENTA}, tailwind::{BLUE_600, GRAY_200, GRAY_400}}, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::MaterialMesh2dBundle};
 use color::ColorNode;
 use example::ExampleNode;
 use fields::Field;
@@ -122,7 +122,9 @@ fn spawn_requested_node(
                 background_color: match node {
                     Node::ColorNode(cn) => cn.color,
                     _ => GRAY_200.into()
-                }
+                },
+                border_width: 2.,
+                border_color: GRAY_400.into(),
             }),
             ..default()
         });

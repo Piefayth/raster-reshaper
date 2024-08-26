@@ -9,7 +9,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Out, Over, Pointer},
+    events::{Click, Down, Out, Over, Pointer, Up},
     focus::PickingInteraction,
     prelude::{On, Pickable, PointerButton},
     PickableBundle,
@@ -18,6 +18,7 @@ use bevy_mod_picking::{
 use crate::{
     asset::FontAssets,
     nodes::{RequestSpawnNode, RequestSpawnNodeKind},
+    setup::ApplicationCanvas,
     ApplicationState,
 };
 
@@ -176,9 +177,9 @@ pub fn open_context_menu(
 ) {
     let right_click_event = mouse_events
         .read()
-        .find(|event| event.button == PointerButton::Secondary);
+        .find(|event| event.button == PointerButton::Secondary && q_contextualized.contains(event.target));
 
-    // If there's no right-click event, bail
+    // If there's no right-click event on an entity configured with UIContext, bail
     let right_click_event = match right_click_event {
         Some(event) => event,
         None => return,
@@ -219,7 +220,8 @@ pub fn open_context_menu(
 // Handles any non-right-click action that would close the context menu.
 pub fn cancel_context_menu(
     mut commands: Commands,
-    mut mouse_events: EventReader<MouseButtonInput>,
+    mut click_down_events: EventReader<Pointer<Down>>,
+    mut click_up_events: EventReader<Pointer<Up>>,
     q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
 ) {
     if q_context_menu.is_empty() {
@@ -228,21 +230,21 @@ pub fn cancel_context_menu(
 
     let (context_menu_entity, context_menu_picking) = q_context_menu.single();
 
-    for event in mouse_events.read() {
-        if event.button == MouseButton::Left {
-            match event.state {
-                ButtonState::Pressed => {
-                    // On left click, if the user is no longer hovering the context menu, dismiss it.
-                    if *context_menu_picking == PickingInteraction::None {
-                        commands.entity(context_menu_entity).despawn_recursive()
-                    }
-                }
-                ButtonState::Released => {
-                    // User left clicked inside the context menu, then released outside.
-                    if *context_menu_picking == PickingInteraction::None {
-                        commands.entity(context_menu_entity).despawn_recursive()
-                    }
-                }
+    for event in click_down_events.read() {
+        if event.button == PointerButton::Primary {
+            if *context_menu_picking == PickingInteraction::None {
+                commands.entity(context_menu_entity).despawn_recursive();
+                break;
+            }
+        }
+    }
+
+    for event in click_up_events.read() {
+        if event.button == PointerButton::Primary {
+            // User left clicked inside the context menu, then released outside.
+            if *context_menu_picking == PickingInteraction::None {
+                commands.entity(context_menu_entity).despawn_recursive();
+                break;
             }
         }
     }

@@ -13,11 +13,21 @@ var<uniform> title_bar_height: f32;
 var<uniform> node_height: f32;
 @group(2) @binding(5)
 var<uniform> background_color: vec4<f32>;
+@group(2) @binding(6)
+var<uniform> border_width: f32;
+@group(2) @binding(7)
+var<uniform> border_color: vec4<f32>;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let title_bar_ratio = title_bar_height / node_height;
+    let border_ratio = border_width / node_height;
+    
+    // Check if we're in the border area
+    if uv.x < border_ratio || uv.x > 1.0 - border_ratio || uv.y < border_ratio || uv.y > 1.0 - border_ratio {
+        return border_color;
+    }
     
     if uv.y < title_bar_ratio {
         // Title bar area (top of the node)
@@ -25,8 +35,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     } else {
         // Texture area
         let texture_uv = vec2<f32>(
-            uv.x,
-            (uv.y - title_bar_ratio) / (1.0 - title_bar_ratio)
+            (uv.x - border_ratio) / (1.0 - 2.0 * border_ratio),
+            (uv.y - title_bar_ratio) / (1.0 - title_bar_ratio - border_ratio)
         );
         let sampled_color = textureSample(texture, texture_sampler, texture_uv);
         

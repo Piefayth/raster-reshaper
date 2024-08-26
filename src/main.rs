@@ -7,6 +7,7 @@ mod graph;
 mod nodes;
 mod setup;
 mod ui;
+mod camera;
 
 fn main() {
     App::new()
@@ -16,6 +17,7 @@ fn main() {
         .add_plugins(graph::GraphPlugin)
         .add_plugins(ui::UiPlugin)
         .add_plugins(nodes::NodePlugin)
+        .add_plugins(camera::CameraPlugin)
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
         .init_state::<ApplicationState>()

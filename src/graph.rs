@@ -81,7 +81,6 @@ fn update_nodes(
                         }
                     }
                     Node::ColorNode(color_node) => {
-                        println!("Processed a color node!");
                         // well if the color changed i guess we'd update the little preview?
                     }
                 }

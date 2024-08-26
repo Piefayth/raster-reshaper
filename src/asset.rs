@@ -92,6 +92,10 @@ pub struct NodeDisplayMaterial {
     pub node_height: f32,
     #[uniform(5)]
     pub background_color: LinearRgba,
+    #[uniform(6)]
+    pub border_width: f32,
+    #[uniform(7)]
+    pub border_color: LinearRgba,
 }
 
 impl Material2d for NodeDisplayMaterial {

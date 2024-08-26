@@ -80,7 +80,11 @@ fn ui_setup(mut commands: Commands) {
                 })
                 .insert(Name::new("Node Edit Area"))
                 .insert(NodeEditArea)
-                .insert(UIContext::NodeEditArea);
+                .insert(UIContext::NodeEditArea)
+                .insert(Pickable {
+                    should_block_lower: false,
+                    is_hoverable: true,
+                });
 
             child_builder
                 .spawn(NodeBundle {

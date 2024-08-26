@@ -7,14 +7,12 @@ use bevy::{
     tasks::block_on,
     window::PresentMode,
 };
+use bevy_mod_picking::PickableBundle;
 use petgraph::graph::DiGraph;
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes,
-    graph::{DisjointPipelineGraph, Edge, TriggerProcessPipeline},
-    nodes::Node,
-    ApplicationState,
+    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, TriggerProcessPipeline}, nodes::Node, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -32,6 +30,9 @@ impl Plugin for SetupPlugin {
     }
 }
 
+#[derive(Component)]
+pub struct ApplicationCanvas;
+
 fn setup_scene(
     mut commands: Commands,
     mut windows: Query<&mut Window>,
@@ -40,21 +41,12 @@ fn setup_scene(
     let mut window = windows.single_mut();
     window.present_mode = PresentMode::Immediate;
 
-    commands.spawn(Camera2dBundle {
-        projection: OrthographicProjection {
-            near: -1001.,
-            far: 100001.,
-            ..default()
-        },
-        ..default()
-    });
-
     commands.spawn(MaterialMesh2dBundle {
         mesh: meshes.canvas_quad.clone(),
         material: meshes.canvas_quad_material.clone(),
         transform: Transform::from_xyz(0., 0., -1000.),
         ..default()
-    });
+    }).insert(ApplicationCanvas);
 }
 
 #[derive(Resource, Deref, Clone)]
@@ -91,7 +83,7 @@ fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
 }
 
 fn spawn_graph_entity(mut commands: Commands) {
-    let mut graph = DiGraph::<Node, Edge>::new();
+    let graph = DiGraph::<Node, Edge>::new();
 
     commands.spawn(DisjointPipelineGraph { graph });
 
