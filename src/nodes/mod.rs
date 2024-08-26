@@ -87,7 +87,7 @@ struct NodeZIndexToTop {
 
 // Triggered primarily on node drag start to bring it to the front
 fn node_z_to_top(
-    mut trigger: Trigger<NodeZIndexToTop>,
+    trigger: Trigger<NodeZIndexToTop>,
     mut query: Query<(Entity, &mut Transform), With<NodeDisplay>>,
 ) {
     let mut highest_z = f32::NEG_INFINITY;
@@ -100,13 +100,15 @@ fn node_z_to_top(
     }
 
     // Update the Z coordinate of the event's node
+    let mut trigger_node_old_z = 0.;
     if let Ok((_, mut transform)) = query.get_mut(trigger.event().node) {
-        transform.translation.z = highest_z + 1.0;
+        trigger_node_old_z = transform.translation.z;
+        transform.translation.z = highest_z;
     }
 
     // Second pass: Decrement Z coordinate of nodes with higher or equal Z
     for (entity, mut transform) in query.iter_mut() {
-        if entity != trigger.event().node && transform.translation.z >= highest_z {
+        if entity != trigger.event().node && transform.translation.z >= trigger_node_old_z {
             transform.translation.z -= 1.0;
         }
     }
@@ -178,9 +180,9 @@ fn handle_node_focus(
         for entity in focused_query.iter() {
             commands.entity(entity).remove::<FocusedNode>();
         }
-        
+
         commands.entity(last_left_click.target).insert(FocusedNode);
-        commands.trigger(NodeZIndexToTop { node: last_left_click.target })
+        commands.trigger(NodeZIndexToTop { node: last_left_click.target });
     }
 }
 
