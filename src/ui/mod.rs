@@ -43,6 +43,7 @@ impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
 pub enum UIContext {
     NodeEditArea,
     Inspector,
+    Node(Entity),
 }
 
 #[derive(Component)]

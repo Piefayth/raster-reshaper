@@ -144,12 +144,6 @@ pub mod macros {
                 $($variant,)*
             }
 
-            #[derive(Event, Debug, Clone)]
-            pub struct RequestSpawnNode {
-                pub position: Vec2,
-                pub kind: RequestSpawnNodeKind,
-            }
-
             impl NodeTrait for $enum_name {
                 fn get_input(&self, id: InputId) -> Option<Field> {
                     match self {

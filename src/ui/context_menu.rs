@@ -17,8 +17,7 @@ use bevy_mod_picking::{
 
 use crate::{
     asset::FontAssets,
-    nodes::{RequestSpawnNode, RequestSpawnNodeKind},
-    setup::ApplicationCanvas,
+    nodes::{RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind},
     ApplicationState,
 };
 
@@ -102,6 +101,18 @@ impl ContextMenu {
             }
             UIContext::Inspector => {
                 // what children go here
+            },
+            UIContext::Node(entity) => {
+                ec.with_children(|child_builder| {
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Delete",
+                        font.clone(),
+                        RequestDeleteNode {
+                            node: *entity,
+                        },
+                    );
+                });
             }
         }
 
@@ -175,9 +186,13 @@ pub fn open_context_menu(
     q_ui_root: Query<Entity, With<UiRoot>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
+    // TODO: There is an `event.hit.depth` containing the distance to the target
+    // Instead of using .find, lets actually get the right click event that had the largest depth
+    // Still retaining the current condition as well
     let right_click_event = mouse_events
         .read()
-        .find(|event| event.button == PointerButton::Secondary && q_contextualized.contains(event.target));
+        .filter(|event| event.button == PointerButton::Secondary && q_contextualized.contains(event.target))
+        .max_by(|a, b| a.hit.depth.partial_cmp(&b.hit.depth).unwrap_or(std::cmp::Ordering::Equal));
 
     // If there's no right-click event on an entity configured with UIContext, bail
     let right_click_event = match right_click_event {

@@ -30,10 +30,7 @@ use crate::{
     asset::{
         GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION,
         NODE_TITLE_BAR_SIZE,
-    },
-    graph::{DisjointPipelineGraph, TriggerProcessPipeline},
-    setup::{CustomGpuDevice, CustomGpuQueue},
-    ApplicationState,
+    }, graph::{DisjointPipelineGraph, TriggerProcessPipeline}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
 };
 
 pub struct NodePlugin;
@@ -48,6 +45,7 @@ impl Plugin for NodePlugin {
         );
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
+        app.observe(delete_node);
     }
 }
 
@@ -83,6 +81,32 @@ declare_node_enum_and_impl_trait! {
 #[derive(Event)]
 struct NodeZIndexToTop {
     node: Entity,
+}
+
+#[derive(Event, Debug, Clone)]
+pub struct RequestSpawnNode {
+    pub position: Vec2,
+    pub kind: RequestSpawnNodeKind,
+}
+
+#[derive(Event, Debug, Clone)]
+pub struct RequestDeleteNode {
+    pub node: Entity,
+}
+
+fn delete_node(
+    trigger: Trigger<RequestDeleteNode>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_nodes: Query<&NodeDisplay>,
+) {
+    // u gotta delete it from the graph LMFOA
+    let mut pipeline = q_pipeline.single_mut();
+    let node = q_nodes.get(trigger.event().node).unwrap();
+
+    pipeline.graph.remove_node(node.index);
+
+    commands.entity(trigger.event().node).despawn_recursive();
 }
 
 // Triggered primarily on node drag start to bring it to the front
@@ -173,7 +197,7 @@ fn handle_node_focus(
 ) {
     let maybe_last_left_click = click_events
         .read()
-        .filter(|click| click.button == PointerButton::Primary && q_node.contains(click.target))
+        .filter(|click| (click.button == PointerButton::Primary || click.button == PointerButton::Secondary) && q_node.contains(click.target))
         .last();
 
     if let Some(last_left_click) = maybe_last_left_click {
@@ -261,7 +285,8 @@ fn spawn_requested_node(
                 focus_border_color: ORANGE.into(),
             }),
             ..default()
-        });
+        })
+        .insert(UIContext::Node(node_entity));
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
