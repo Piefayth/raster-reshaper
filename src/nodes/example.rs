@@ -18,25 +18,23 @@ use bevy::{
             TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
             VertexAttribute, VertexFormat, VertexStepMode,
         },
-    },
+    }, utils::HashMap,
 };
 
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
 use super::{
-    macros::macros::declare_node,
-    shared::{Vertex, U32_SIZE},
-    Field, InputId,
+    fields::FieldMeta, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId
 };
 
 declare_node!(
     name: ExampleNode,
     fields: {
         #[entity] entity: Entity,
-        #[input] texture_extents: Extent3d,
-        #[input] texture_format: TextureFormat,
-        #[input] triangle_color: Vec4,
-        #[output] output_image: Option<Image>,
+        #[input] texture_extents: Extent3d   { meta: FieldMeta { visible: false }},
+        #[input] texture_format: TextureFormat  { meta: FieldMeta { visible: false }},
+        #[input] triangle_color: Vec4   { meta: FieldMeta { visible: true }},
+        #[output] output_image: Option<Image>  { meta: FieldMeta { visible: true }},
         render_pipeline: Box<RenderPipeline>,
         texture_view: Box<TextureView>,
         bind_group: BindGroup, // todo: just one?
@@ -233,6 +231,8 @@ declare_node!(
                 output_image: None,
                 triangle_color: Vec4::ONE,
                 entity,
+                input_meta: HashMap::new(),
+                output_meta: HashMap::new(),
             }
         }
         process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {

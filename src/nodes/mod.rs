@@ -21,7 +21,7 @@ use bevy_mod_picking::{
 };
 use color::ColorNode;
 use example::ExampleNode;
-use fields::Field;
+use fields::{Field, FieldMeta};
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::graph::NodeIndex;
 use wgpu::TextureFormat;
@@ -73,6 +73,12 @@ pub trait NodeTrait {
     fn output_fields(&self) -> &[OutputId];
     async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue);
     fn entity(&self) -> Entity;
+    
+
+    fn set_input_meta(&mut self, id: InputId, meta: FieldMeta);
+    fn get_input_meta(&self, id: InputId) -> Option<&FieldMeta>;
+    fn set_output_meta(&mut self, id: OutputId, meta: FieldMeta);
+    fn get_output_meta(&self, id: OutputId) -> Option<&FieldMeta>;
 }
 
 declare_node_enum_and_impl_trait! {
@@ -264,7 +270,7 @@ fn spawn_requested_node(
             pipeline.graph.add_node(Node::ExampleNode(example_node))
         }
         RequestSpawnNodeKind::ColorNode => {
-            let color_node = ColorNode::new(node_entity, MAGENTA.into());
+            let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
             pipeline.graph.add_node(Node::ColorNode(color_node))
         }
     };
@@ -285,7 +291,7 @@ fn spawn_requested_node(
                 title_bar_height: NODE_TITLE_BAR_SIZE,
                 node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
                 background_color: match node {
-                    Node::ColorNode(cn) => cn.color,
+                    Node::ColorNode(cn) => cn.out_color,
                     _ => GRAY_200.into(),
                 },
                 border_width: 2.,

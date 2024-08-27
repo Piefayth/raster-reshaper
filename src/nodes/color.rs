@@ -1,24 +1,29 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::HashMap};
 
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
-use super::macros::macros::declare_node;
+use super::{fields::FieldMeta, macros::macros::declare_node};
 
 declare_node!(
     name: ColorNode,
     fields: {
         #[entity] entity: Entity,
-        #[output] color: LinearRgba,
+        #[input]  in_color: LinearRgba  { meta: FieldMeta { visible: false }},
+        #[output] out_color: LinearRgba { meta: FieldMeta { visible: false }},
     },
 
     methods: {
         new(
             entity: Entity,
-            color: LinearRgba
+            in_color: LinearRgba,
+            out_color: LinearRgba
         ) -> Self {
             Self {
                 entity,
-                color
+                in_color,
+                out_color,
+                input_meta: HashMap::new(),
+                output_meta: HashMap::new(),
             }
         }
 
