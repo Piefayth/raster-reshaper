@@ -34,7 +34,7 @@ fn done_processsing_assets(mut next_state: ResMut<NextState<ApplicationState>>) 
     next_state.set(ApplicationState::Setup);
 }
 
-pub const NODE_TITLE_BAR_SIZE: f32 = 20.;
+pub const NODE_TITLE_BAR_SIZE: f32 = 25.;
 pub const NODE_TEXTURE_DISPLAY_DIMENSION: f32 = 256.;
 
 fn generate_meshes(

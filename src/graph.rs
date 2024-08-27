@@ -35,10 +35,10 @@ pub struct DisjointPipelineGraph {
 pub struct PipelineProcessTask(Task<Vec<ProcessNode>>);
 
 #[derive(Event)]
-struct GraphWasUpdated;
+pub struct GraphWasUpdated;
 
 #[derive(Event)]
-pub struct TriggerProcessPipeline;
+pub struct RequestProcessPipeline;
 
 #[derive(Clone)]
 pub struct ProcessNode {
@@ -119,7 +119,7 @@ fn poll_processed_pipeline(
 
 // Begin a new evaluation of all the nodes in the graph
 fn process_pipeline(
-    _trigger: Trigger<TriggerProcessPipeline>,
+    _trigger: Trigger<RequestProcessPipeline>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
@@ -244,6 +244,7 @@ async fn process_node(
     p_node
 }
 
+// Determines which nodes have resolved dependencies and are not currently being processed.
 fn get_processible_nodes(
     graph: &DiGraph<Node, Edge>,
     unprocessed_nodes: &HashSet<NodeIndex>,

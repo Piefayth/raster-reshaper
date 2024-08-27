@@ -6,13 +6,13 @@ pub mod shared;
 
 use bevy::{
     color::palettes::{
-        css::{BLACK, MAGENTA, ORANGE},
+        css::{BLACK, MAGENTA, ORANGE, WHITE},
         tailwind::{BLUE_600, GRAY_200, GRAY_400},
     },
     math::VectorSpace,
     prelude::*,
     render::render_resource::Source,
-    sprite::MaterialMesh2dBundle,
+    sprite::{Anchor, MaterialMesh2dBundle},
 };
 use bevy_mod_picking::{
     events::{Click, Down, Drag, DragStart, Pointer},
@@ -28,9 +28,13 @@ use wgpu::TextureFormat;
 
 use crate::{
     asset::{
-        GeneratedMeshes, NodeDisplayMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION,
-        NODE_TITLE_BAR_SIZE,
-    }, graph::{DisjointPipelineGraph, TriggerProcessPipeline}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, ShaderAssets,
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
+    },
+    graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline},
+    setup::{CustomGpuDevice, CustomGpuQueue},
+    ui::UIContext,
+    ApplicationState,
 };
 
 pub struct NodePlugin;
@@ -100,16 +104,16 @@ fn delete_node(
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_nodes: Query<&NodeDisplay>,
 ) {
-    // u gotta delete it from the graph LMFOA
     let mut pipeline = q_pipeline.single_mut();
     let node = q_nodes.get(trigger.event().node).unwrap();
 
     pipeline.graph.remove_node(node.index);
 
     commands.entity(trigger.event().node).despawn_recursive();
+    commands.trigger(RequestProcessPipeline);
 }
 
-// Triggered primarily on node drag start to bring it to the front
+// Moves the target node in front of all other nodes
 fn node_z_to_top(
     trigger: Trigger<NodeZIndexToTop>,
     mut query: Query<(Entity, &mut Transform), With<NodeDisplay>>,
@@ -130,7 +134,7 @@ fn node_z_to_top(
         transform.translation.z = highest_z;
     }
 
-    // Second pass: Decrement Z coordinate of nodes with higher or equal Z
+    // Second pass: Decrement Z coordinate of nodes with higher or equal Z than the topped node
     for (entity, mut transform) in query.iter_mut() {
         if entity != trigger.event().node && transform.translation.z >= trigger_node_old_z {
             transform.translation.z -= 1.0;
@@ -197,7 +201,10 @@ fn handle_node_focus(
 ) {
     let maybe_last_left_click = click_events
         .read()
-        .filter(|click| (click.button == PointerButton::Primary || click.button == PointerButton::Secondary) && q_node.contains(click.target))
+        .filter(|click| {
+            (click.button == PointerButton::Primary || click.button == PointerButton::Secondary)
+                && q_node.contains(click.target)
+        })
         .last();
 
     if let Some(last_left_click) = maybe_last_left_click {
@@ -206,7 +213,9 @@ fn handle_node_focus(
         }
 
         commands.entity(last_left_click.target).insert(FocusedNode);
-        commands.trigger(NodeZIndexToTop { node: last_left_click.target });
+        commands.trigger(NodeZIndexToTop {
+            node: last_left_click.target,
+        });
     }
 }
 
@@ -222,6 +231,7 @@ fn spawn_requested_node(
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
+    fonts: Res<FontAssets>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let (camera, camera_transform) = camera_query.single();
@@ -286,11 +296,40 @@ fn spawn_requested_node(
             }),
             ..default()
         })
-        .insert(UIContext::Node(node_entity));
+        .insert(UIContext::Node(node_entity))
+        .with_children(|child_builder| {
+            let heading_text_margin_left = 10.;
+            let heading_text_margin_top = 5.;
+
+            child_builder.spawn(Text2dBundle {
+                text: Text::from_section(
+                    node_name(&trigger.event().kind),
+                    TextStyle {
+                        font: fonts.deja_vu_sans.clone(),
+                        font_size: 18.,
+                        color: WHITE.into(),
+                    },
+                ),
+                text_anchor: Anchor::TopLeft,
+                transform: Transform::from_xyz(
+                    (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.) + heading_text_margin_left,
+                    ((NODE_TEXTURE_DISPLAY_DIMENSION + NODE_TITLE_BAR_SIZE) / 2.) - heading_text_margin_top,
+                    0.1, // can't have identical z to parent
+                ),
+                ..default()
+            });
+        });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
-    commands.trigger(TriggerProcessPipeline);
+    commands.trigger(RequestProcessPipeline);
+}
+
+fn node_name(kind: &RequestSpawnNodeKind) -> &'static str {
+    match kind {
+        RequestSpawnNodeKind::ExampleNode => "Example",
+        RequestSpawnNodeKind::ColorNode => "Color",
+    }
 }
 
 fn shader_source(shaders: &Res<Assets<Shader>>, shader: &Handle<Shader>) -> String {

@@ -12,7 +12,7 @@ use petgraph::graph::DiGraph;
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, TriggerProcessPipeline}, nodes::Node, ApplicationState
+    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, nodes::Node, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -87,7 +87,7 @@ fn spawn_graph_entity(mut commands: Commands) {
 
     commands.spawn(DisjointPipelineGraph { graph });
 
-    commands.trigger(TriggerProcessPipeline);
+    commands.trigger(RequestProcessPipeline);
 }
 
 fn done_setting_up(mut next_state: ResMut<NextState<ApplicationState>>) {

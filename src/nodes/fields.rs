@@ -17,6 +17,11 @@ define_field_enum! {
     }
 }
 
+#[derive(Clone)]
+pub struct FieldMeta {
+    visible: bool,
+}
+
 impl TryFrom<Field> for u32 {
     type Error = String;
 

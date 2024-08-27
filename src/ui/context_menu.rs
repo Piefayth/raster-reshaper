@@ -186,9 +186,6 @@ pub fn open_context_menu(
     q_ui_root: Query<Entity, With<UiRoot>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
-    // TODO: There is an `event.hit.depth` containing the distance to the target
-    // Instead of using .find, lets actually get the right click event that had the largest depth
-    // Still retaining the current condition as well
     let right_click_event = mouse_events
         .read()
         .filter(|event| event.button == PointerButton::Secondary && q_contextualized.contains(event.target))
