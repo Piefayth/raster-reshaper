@@ -9,7 +9,7 @@ declare_node!(
     fields: {
         #[entity] entity: Entity,
         #[input]  in_color: LinearRgba  { meta: FieldMeta { visible: false }},
-        #[output] out_color: LinearRgba { meta: FieldMeta { visible: false }},
+        #[output] out_color: LinearRgba { meta: FieldMeta { visible: true }},
     },
 
     methods: {
@@ -27,8 +27,8 @@ declare_node!(
             }
         }
 
-        process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
-
+        process(&mut self) {
+            self.out_color = self.in_color;
         }
     }
 );

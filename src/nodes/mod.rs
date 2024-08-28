@@ -71,7 +71,7 @@ pub trait NodeTrait {
     fn set_output(&mut self, id: OutputId, value: Field) -> Result<(), String>;
     fn input_fields(&self) -> &[InputId];
     fn output_fields(&self) -> &[OutputId];
-    async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue);
+    async fn process(&mut self);
     fn entity(&self) -> Entity;
     
 
@@ -231,6 +231,7 @@ fn spawn_requested_node(
     camera_query: Query<(&Camera, &GlobalTransform)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     render_device: Res<CustomGpuDevice>,
+    render_queue: Res<CustomGpuQueue>,
     shader_handles: Res<ShaderAssets>,
     shaders: Res<Assets<Shader>>,
     mut images: ResMut<Assets<Image>>,
@@ -261,6 +262,7 @@ fn spawn_requested_node(
             let example_node = ExampleNode::new(
                 node_entity,
                 &render_device,
+                &render_queue,
                 &frag_shader,
                 &vert_shader,
                 512u32, // TODO: Is here where we want to choose and handle node defaults?

@@ -156,7 +156,7 @@ fn process_pipeline(
 
         for node in nodes_to_process.into_iter() {
             in_flight_nodes.insert(node.index);
-            let subtask = process_node(node, device.clone(), render_queue.clone()).boxed();
+            let subtask = process_node(node).boxed();
             subtasks.push(subtask);
         }
 
@@ -206,8 +206,6 @@ fn process_pipeline(
 
                 let subtask = process_node(
                     node_with_resolved_dependencies,
-                    device.clone(),
-                    render_queue.clone(),
                 )
                 .boxed();
                 
@@ -228,12 +226,10 @@ fn process_pipeline(
 
 async fn process_node(
     mut p_node: ProcessNode,
-    device: CustomGpuDevice,
-    queue: CustomGpuQueue,
 ) -> ProcessNode {
     let start = Instant::now();
 
-    p_node.node.process(&device, &queue).await;
+    p_node.node.process().await;
 
     println!(
         "Node with index {:?} processed in {:?}",

@@ -18,13 +18,17 @@ use bevy::{
             TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
             VertexAttribute, VertexFormat, VertexStepMode,
         },
-    }, utils::HashMap,
+    },
+    utils::HashMap,
 };
 
 use crate::setup::{CustomGpuDevice, CustomGpuQueue};
 
 use super::{
-    fields::FieldMeta, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, Field, InputId
+    fields::FieldMeta,
+    macros::macros::declare_node,
+    shared::{Vertex, U32_SIZE},
+    Field, InputId,
 };
 
 declare_node!(
@@ -35,6 +39,8 @@ declare_node!(
         #[input] texture_format: TextureFormat  { meta: FieldMeta { visible: false }},
         #[input] triangle_color: Vec4   { meta: FieldMeta { visible: true }},
         #[output] output_image: Option<Image>  { meta: FieldMeta { visible: true }},
+        render_device: CustomGpuDevice,
+        render_queue: CustomGpuQueue,
         render_pipeline: Box<RenderPipeline>,
         texture_view: Box<TextureView>,
         bind_group: BindGroup, // todo: just one?
@@ -49,6 +55,7 @@ declare_node!(
         new(
             entity: Entity,
             render_device: &CustomGpuDevice,
+            render_queue: &CustomGpuQueue,
             fragment_source: &String,
             vert_source: &String,
             texture_size: u32,
@@ -217,6 +224,8 @@ declare_node!(
             });
 
             Self {
+                render_device: render_device.clone(),
+                render_queue: render_queue.clone(),
                 render_pipeline: Box::new(render_pipeline),
                 texture_view: Box::new(texture_view),
                 texture,
@@ -235,12 +244,12 @@ declare_node!(
                 output_meta: HashMap::new(),
             }
         }
-        process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
-            let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
+        process(&mut self) {
+            let mut encoder = self.render_device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Command Encoder Descriptor"),
             });
 
-            render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[self.triangle_color .x, self.triangle_color .y, self.triangle_color .z, self.triangle_color .w]));
+            self.render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[self.triangle_color .x, self.triangle_color .y, self.triangle_color .z, self.triangle_color .w]));
 
             {
                 let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -283,7 +292,7 @@ declare_node!(
                 self.texture_extents.clone(),
             );
 
-            render_queue.submit(Some(encoder.finish()));
+            self.render_queue.submit(Some(encoder.finish()));
 
             let image = {
                 let buffer_slice = &self.output_buffer.slice(..);
@@ -302,7 +311,7 @@ declare_node!(
                 // BUT
                 // in the event that we cancel...
                 // ... we need some way to unmap the buffer I think.
-                render_device.poll(Maintain::wait()).panic_on_timeout();
+                self.render_device.poll(Maintain::wait()).panic_on_timeout();
 
                 r.recv().expect("Failed to receive map_async message");
 

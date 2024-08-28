@@ -225,9 +225,9 @@ pub mod macros {
                     }
                 }
 
-                async fn process(&mut self, render_device: &CustomGpuDevice, render_queue: &CustomGpuQueue) {
+                async fn process(&mut self) {
                     match self {
-                        $($enum_name::$variant(n) => n.process(render_device, render_queue).await,)*
+                        $($enum_name::$variant(n) => n.process().await,)*
                     }
                 }
 
