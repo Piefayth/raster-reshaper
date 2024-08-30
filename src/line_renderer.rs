@@ -1,9 +1,13 @@
 use bevy::{
     prelude::*,
     render::{
-        mesh::{MeshVertexAttribute, MeshVertexBufferLayout, MeshVertexBufferLayoutRef}, render_asset::RenderAssetUsages, render_resource::{
-            AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError, VertexBufferLayout, VertexFormat, VertexStepMode
-        }, Extract, RenderApp, RenderSet
+        mesh::{MeshVertexAttribute, MeshVertexBufferLayout, MeshVertexBufferLayoutRef},
+        render_asset::RenderAssetUsages,
+        render_resource::{
+            AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
+            VertexBufferLayout, VertexFormat, VertexStepMode,
+        },
+        Extract, RenderApp, RenderSet,
     },
     sprite::{Material2d, Material2dKey, Material2dPlugin, MaterialMesh2dBundle},
 };
@@ -24,10 +28,8 @@ impl Plugin for LineRenderingPlugin {
 
 #[derive(Component, Clone, Reflect, Default)]
 pub struct Line {
-    pub start: Vec2,
-    pub end: Vec2,
-    pub color_start: LinearRgba,
-    pub color_end: LinearRgba,
+    pub points: Vec<Vec2>,
+    pub colors: Vec<LinearRgba>,
     pub thickness: f32,
 }
 
@@ -77,30 +79,42 @@ fn update_line_meshes(
     query: Query<(Entity, &Line), Changed<Line>>,
 ) {
     for (entity, line) in query.iter() {
+        if line.points.len() < 2 || line.colors.len() != line.points.len() {
+            continue; // Not enough points or mismatched colors
+        }
+
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleStrip, RenderAssetUsages::RENDER_WORLD);
-        
-        let direction = (line.end - line.start).normalize();
-        let normal = Vec2::new(-direction.y, direction.x);
-        
-        let positions = vec![
-            [line.start.x, line.start.y, 0.0],
-            [line.start.x, line.start.y, 0.0],
-            [line.end.x, line.end.y, 0.0],
-            [line.end.x, line.end.y, 0.0],
-        ];
-        let normals = vec![
-            [-normal.x, -normal.y],
-            [normal.x, normal.y],
-            [-normal.x, -normal.y],
-            [normal.x, normal.y],
-        ];
-        let miters = vec![1.0, 1.0, 1.0, 1.0];
-        let colors = vec![
-            line.color_start.to_f32_array(),
-            line.color_start.to_f32_array(),
-            line.color_end.to_f32_array(),
-            line.color_end.to_f32_array(),
-        ];
+
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        let mut miters = Vec::new();
+        let mut colors = Vec::new();
+
+        for i in 0..line.points.len() {
+            let (normal, miter) = if i == 0 {
+                let dir = (line.points[1] - line.points[0]).normalize();
+                (Vec2::new(-dir.y, dir.x), 1.0)
+            } else if i == line.points.len() - 1 {
+                let dir = (line.points[i] - line.points[i-1]).normalize();
+                (Vec2::new(-dir.y, dir.x), 1.0)
+            } else {
+                let prev = (line.points[i] - line.points[i-1]).normalize();
+                let next = (line.points[i+1] - line.points[i]).normalize();
+                let tangent = (prev + next).normalize();
+                let miter = Vec2::new(-tangent.y, tangent.x);
+                let length = 1.0 / Vec2::dot(miter, Vec2::new(-prev.y, prev.x));
+                (miter, length)
+            };
+
+            positions.push([line.points[i].x, line.points[i].y, 0.0]);
+            positions.push([line.points[i].x, line.points[i].y, 0.0]);
+            normals.push([-normal.x, -normal.y]);
+            normals.push([normal.x, normal.y]);
+            miters.push(miter);
+            miters.push(miter);
+            colors.push(line.colors[i].to_f32_array());
+            colors.push(line.colors[i].to_f32_array());
+        }
 
         mesh.insert_attribute(ATTRIBUTE_POSITION, positions);
         mesh.insert_attribute(ATTRIBUTE_NORMAL, normals);
@@ -110,7 +124,7 @@ fn update_line_meshes(
         commands.entity(entity).insert(MaterialMesh2dBundle {
             mesh: bevy::sprite::Mesh2dHandle(meshes.add(mesh)),
             material: materials.add(LineMaterial { thickness: line.thickness }),
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            transform: Transform::from_xyz(0.0, 0.0, -1000.0),
             ..default()
         });
     }

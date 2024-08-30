@@ -28,8 +28,7 @@ use wgpu::TextureFormat;
 
 use crate::{
     asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS
     },
     graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline},
     setup::{CustomGpuDevice, CustomGpuQueue},
@@ -235,7 +234,7 @@ fn spawn_requested_node(
     shaders: Res<Assets<Shader>>,
     mut images: ResMut<Assets<Image>>,
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
-    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut port_materials: ResMut<Assets<PortMaterial>>,
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
     fonts: Res<FontAssets>,
@@ -341,6 +340,13 @@ fn spawn_requested_node(
                 .enumerate()
             {
                 let field = node.get_input(*input_id).unwrap();
+
+                let port_material = port_materials.add(PortMaterial {
+                    port_color: port_color(&field),
+                    outline_color: Color::WHITE.into(),
+                    outline_thickness: 0.05,
+                });
+
                 child_builder.spawn(MaterialMesh2dBundle {
                     transform: Transform::from_xyz(
                         (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
@@ -349,7 +355,7 @@ fn spawn_requested_node(
                         1.,
                     ),
                     mesh: meshes.port_mesh.clone(),
-                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    material: port_material,
                     ..default()
                 });
             }
@@ -364,6 +370,12 @@ fn spawn_requested_node(
                 .enumerate()
             {
                 let field = node.get_output(*output_id).unwrap();
+                let port_material = port_materials.add(PortMaterial {
+                    port_color: port_color(&field),
+                    outline_color: Color::WHITE.into(),
+                    outline_thickness: 0.05,
+                });
+
                 child_builder.spawn(MaterialMesh2dBundle {
                     transform: Transform::from_xyz(
                         (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
@@ -372,7 +384,7 @@ fn spawn_requested_node(
                         1.,
                     ),
                     mesh: meshes.port_mesh.clone(),
-                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    material: port_material,
                     ..default()
                 });
             }
