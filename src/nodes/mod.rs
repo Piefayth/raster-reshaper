@@ -12,28 +12,26 @@ use bevy::{
     math::VectorSpace,
     prelude::*,
     render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle},
+    sprite::{Anchor, MaterialMesh2dBundle}, window::PrimaryWindow,
+    ui::Direction as UIDirection
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Drag, DragStart, Pointer},
+    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{On, PointerButton},
+    prelude::{On, Pickable, PointerButton, PointerInteraction}, PickableBundle,
 };
 use color::ColorNode;
 use example::ExampleNode;
 use fields::{Field, FieldMeta};
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::graph::NodeIndex;
+use petgraph::Direction;
 use wgpu::TextureFormat;
 
 use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS
-    },
-    graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline},
-    setup::{CustomGpuDevice, CustomGpuQueue},
-    ui::UIContext,
-    ApplicationState,
+    }, camera::MainCamera, graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline}, line_renderer::{Line}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
 };
 
 pub struct NodePlugin;
@@ -42,13 +40,14 @@ impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((handle_node_drag, handle_node_focus), update_node_border)
+            ((handle_node_drag, handle_node_focus, handle_port_hover, handle_port_connection), update_node_border)
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
         app.observe(delete_node);
+        app.observe(add_edge);
     }
 }
 
@@ -345,6 +344,7 @@ fn spawn_requested_node(
                     port_color: port_color(&field),
                     outline_color: Color::WHITE.into(),
                     outline_thickness: 0.05,
+                    is_hovered: 0.,
                 });
 
                 child_builder.spawn(MaterialMesh2dBundle {
@@ -357,7 +357,12 @@ fn spawn_requested_node(
                     mesh: meshes.port_mesh.clone(),
                     material: port_material,
                     ..default()
-                });
+                })
+                .insert(InputPort {
+                    node_index: spawned_node_index,
+                    field_id: *input_id,
+                })
+                .insert(PickableBundle::default());
             }
 
             for (i, output_id) in node
@@ -374,6 +379,7 @@ fn spawn_requested_node(
                     port_color: port_color(&field),
                     outline_color: Color::WHITE.into(),
                     outline_thickness: 0.05,
+                    is_hovered: 0.,
                 });
 
                 child_builder.spawn(MaterialMesh2dBundle {
@@ -386,13 +392,200 @@ fn spawn_requested_node(
                     mesh: meshes.port_mesh.clone(),
                     material: port_material,
                     ..default()
-                });
+                })
+                .insert(OutputPort {
+                    node_index: spawned_node_index,
+                    field_id: *output_id,
+                })
+                .insert(PickableBundle::default());
             }
         });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
     commands.trigger(RequestProcessPipeline);
+}
+
+#[derive(Component)]
+pub struct InputPort {
+    pub node_index: NodeIndex,
+    pub field_id: InputId,
+}
+
+#[derive(Component)]
+pub struct OutputPort {
+    pub node_index: NodeIndex,
+    pub field_id: OutputId,
+}
+
+#[derive(Event)]
+pub struct AddEdge {
+    pub start_node: NodeIndex,
+    pub end_node: NodeIndex,
+    pub output_field: OutputId,
+    pub input_field: InputId,
+}
+
+fn add_edge(_trigger: Trigger<AddEdge>) {
+    println!("bazinga");
+}
+
+
+#[derive(Clone, Copy)]
+pub struct SelectingPort {
+    pub port: Entity,
+    pub position: Vec2,
+    pub line: Entity,
+    pub direction: Direction,
+}
+
+pub fn handle_port_connection(
+    mut commands: Commands,
+    mut line_query: Query<(Entity, &mut Line)>,
+    input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
+    output_port_query: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut selecting_port: Local<Option<SelectingPort>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut drag_start_events: EventReader<Pointer<DragStart>>,
+    mut drag_end_events: EventReader<Pointer<DragEnd>>,
+) {
+    let (camera, camera_transform) = camera_query.single();
+    let window = window.single();
+
+    // Handle drag start
+    for event in drag_start_events.read() {
+        if event.button != PointerButton::Primary {
+            continue;
+        }
+
+        let port_entity = event.target;
+        let maybe_input_port = input_port_query.get(port_entity);
+        let maybe_output_port = output_port_query.get(port_entity);
+
+        let (port_position, direction) = if let Ok((_, transform, _, _)) = maybe_input_port {
+            (transform.translation().truncate(), Direction::Outgoing)
+        } else if let Ok((_, transform, _, _)) = maybe_output_port {
+            (transform.translation().truncate(), Direction::Incoming)
+        } else {
+            continue;
+        };
+
+        let line_entity = commands.spawn(Line {
+            points: vec![port_position, port_position],
+            colors: vec![Color::WHITE.into(), Color::WHITE.into()],
+            thickness: 2.0,
+        }).id();
+
+        *selecting_port = Some(SelectingPort {
+            port: port_entity,
+            position: port_position,
+            line: line_entity,
+            direction
+        });
+    }
+
+    // Update line position during drag
+    if let Some(SelectingPort { position: start_position, line, .. }) = *selecting_port {
+        if let Some(cursor_position) = window.cursor_position() {
+            if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position) {
+                let cursor_world_position = cursor_world_position.origin.truncate();
+                if let Ok((_, mut line)) = line_query.get_mut(line) {
+                    line.points = vec![start_position, cursor_world_position];
+                }
+            }
+        }
+    }
+
+
+    let maybe_hovered_input = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
+        if matches!(picking_interaction, PickingInteraction::Hovered) {
+            Some(entity)
+        } else {
+            None
+        }
+    });
+
+    let maybe_hovered_output = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
+        if matches!(picking_interaction, PickingInteraction::Hovered) {
+            Some(entity)
+        } else {
+            None
+        }
+    });
+
+    // Handle drag end
+    for event in drag_end_events.read() {
+        if event.button != PointerButton::Primary {
+            continue;
+        }
+    
+        if let Some(SelectingPort { port: start_port, line, direction, .. }) = *selecting_port {
+            commands.entity(line).despawn_recursive();
+            *selecting_port = None;
+
+            if (maybe_hovered_input.is_none() && matches!(direction, Direction::Outgoing)) || (maybe_hovered_output.is_none() && matches!(direction, Direction::Incoming)) {
+                continue;
+            }
+
+            let target_port = maybe_hovered_input.unwrap_or_else(|| maybe_hovered_output.unwrap());
+    
+            match direction {
+                Direction::Outgoing => {
+                    println!("WYA");
+                    if let (Ok((_, _, start_input_port, _)), Ok((_, _, end_output_port, _))) = 
+                        (input_port_query.get(start_port), output_port_query.get(target_port)) {
+                        commands.trigger(AddEdge {
+                            start_node: end_output_port.node_index,
+                            end_node: start_input_port.node_index,
+                            output_field: end_output_port.field_id,
+                            input_field: start_input_port.field_id,
+                        });
+                    }
+                },
+                Direction::Incoming => {
+                    println!("{:?}", target_port);
+    
+                    if let (Ok((_, _, start_output_port, _)), Ok((_, _, end_input_port, _))) = 
+                        (output_port_query.get(start_port), input_port_query.get(target_port)) {
+                        commands.trigger(AddEdge {
+                            start_node: start_output_port.node_index,
+                            end_node: end_input_port.node_index,
+                            output_field: start_output_port.field_id,
+                            input_field: end_input_port.field_id,
+                        });
+                    }
+                },
+            }
+    
+            // Always remove the temporary line
+        }
+    }
+}
+
+
+fn handle_port_hover(
+    mut materials: ResMut<Assets<PortMaterial>>,
+    mut interaction_query: Query<
+        (&PickingInteraction, &Handle<PortMaterial>),
+        (Changed<PickingInteraction>, Or<(With<InputPort>, With<OutputPort>)>)
+    >,
+) {
+    for (interaction, material_handle) in interaction_query.iter_mut() {
+        if let Some(material) = materials.get_mut(material_handle) {
+            match *interaction {
+                PickingInteraction::Pressed => {
+                    material.is_hovered = 1.0;
+                },
+                PickingInteraction::Hovered => {
+                    material.is_hovered = 1.0;
+                }
+                _ => {
+                    material.is_hovered = 0.0;
+                }
+            }
+        }
+    }
 }
 
 fn port_color(field: &Field) -> LinearRgba {

@@ -121,7 +121,7 @@ fn update_line_meshes(
         mesh.insert_attribute(ATTRIBUTE_MITER, miters);
         mesh.insert_attribute(ATTRIBUTE_COLOR, colors);
 
-        commands.entity(entity).insert(MaterialMesh2dBundle {
+        commands.entity(entity).try_insert(MaterialMesh2dBundle {
             mesh: bevy::sprite::Mesh2dHandle(meshes.add(mesh)),
             material: materials.add(LineMaterial { thickness: line.thickness }),
             transform: Transform::from_xyz(0.0, 0.0, -1000.0),

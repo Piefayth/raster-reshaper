@@ -122,6 +122,8 @@ pub struct PortMaterial {
     pub outline_color: LinearRgba,
     #[uniform(2)]
     pub outline_thickness: f32,
+    #[uniform(3)]
+    pub is_hovered: f32, // Using f32 as a boolean (0.0 or 1.0)
 }
 
 impl Material2d for PortMaterial {

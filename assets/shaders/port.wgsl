@@ -7,6 +7,8 @@ var<uniform> port_color: vec4<f32>;
 var<uniform> outline_color: vec4<f32>;
 @group(2) @binding(2)
 var<uniform> outline_thickness: f32;
+@group(2) @binding(3)
+var<uniform> is_hovered: f32;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -21,6 +23,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     } else if distance_from_center > inner_radius {
         return outline_color;
     } else {
-        return port_color;
+        // Lighten the color when hovered
+        let hover_factor = 1.5;
+        let final_color = mix(port_color, port_color * hover_factor, is_hovered);
+        return final_color;
     }
 }
