@@ -6,16 +6,18 @@ use bevy::{
 };
 use bevy_mod_picking::prelude::Pickable;
 use context_menu::ContextMenuPlugin;
+use inspector::{InspectorPanel, InspectorPlugin};
 
 use crate::ApplicationState;
 
 pub mod context_menu;
+pub mod inspector;
 
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ContextMenuPlugin);
+        app.add_plugins((ContextMenuPlugin, InspectorPlugin));
 
         app.add_systems(OnEnter(ApplicationState::Setup), ui_setup);
     }
@@ -48,9 +50,6 @@ pub enum UIContext {
 
 #[derive(Component)]
 pub struct UiRoot;
-
-#[derive(Component)]
-pub struct InspectorPanel;
 
 #[derive(Component)]
 pub struct NodeEditArea;
@@ -86,19 +85,7 @@ fn ui_setup(mut commands: Commands) {
                     should_block_lower: false,
                     is_hoverable: true,
                 });
-
-            child_builder
-                .spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Percent(20.),
-                        height: Val::Percent(100.),
-                        ..default()
-                    },
-                    background_color: SLATE_900.into(),
-                    ..default()
-                })
-                .insert(Name::new("Inspector Panel"))
-                .insert(UIContext::Inspector)
-                .insert(InspectorPanel);
+            
+            InspectorPanel::spawn(child_builder);
         });
 }

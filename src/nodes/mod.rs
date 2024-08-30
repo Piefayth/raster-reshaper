@@ -6,8 +6,8 @@ pub mod shared;
 
 use bevy::{
     color::palettes::{
-        css::{BLACK, MAGENTA, ORANGE, WHITE},
-        tailwind::{BLUE_600, GRAY_200, GRAY_400},
+        css::{BLACK, MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
+        tailwind::{BLUE_600, CYAN_500, GRAY_200, GRAY_400},
     },
     math::VectorSpace,
     prelude::*,
@@ -29,7 +29,7 @@ use wgpu::TextureFormat;
 use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
     },
     graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline},
     setup::{CustomGpuDevice, CustomGpuQueue},
@@ -73,7 +73,6 @@ pub trait NodeTrait {
     fn output_fields(&self) -> &[OutputId];
     async fn process(&mut self);
     fn entity(&self) -> Entity;
-    
 
     fn set_input_meta(&mut self, id: InputId, meta: FieldMeta);
     fn get_input_meta(&self, id: InputId) -> Option<&FieldMeta>;
@@ -236,6 +235,7 @@ fn spawn_requested_node(
     shaders: Res<Assets<Shader>>,
     mut images: ResMut<Assets<Image>>,
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
+    mut color_materials: ResMut<Assets<ColorMaterial>>,
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
     fonts: Res<FontAssets>,
@@ -309,6 +309,7 @@ fn spawn_requested_node(
             let heading_text_margin_left = 10.;
             let heading_text_margin_top = 5.;
 
+            // heading text
             child_builder.spawn(Text2dBundle {
                 text: Text::from_section(
                     node_name(&trigger.event().kind),
@@ -321,16 +322,77 @@ fn spawn_requested_node(
                 text_anchor: Anchor::TopLeft,
                 transform: Transform::from_xyz(
                     (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.) + heading_text_margin_left,
-                    ((NODE_TEXTURE_DISPLAY_DIMENSION + NODE_TITLE_BAR_SIZE) / 2.) - heading_text_margin_top,
+                    ((NODE_TEXTURE_DISPLAY_DIMENSION + NODE_TITLE_BAR_SIZE) / 2.)
+                        - heading_text_margin_top,
                     0.1, // can't have identical z to parent
                 ),
                 ..default()
             });
+
+            let port_group_vertical_margin = 36.;
+
+            for (i, input_id) in node
+                .input_fields()
+                .iter()
+                .filter(|inner_input_id| {
+                    let input_meta = node.get_input_meta(**inner_input_id).unwrap();
+                    input_meta.visible
+                })
+                .enumerate()
+            {
+                let field = node.get_input(*input_id).unwrap();
+                child_builder.spawn(MaterialMesh2dBundle {
+                    transform: Transform::from_xyz(
+                        (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
+                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
+                            + -(i as f32 * PORT_RADIUS * 3.),
+                        1.,
+                    ),
+                    mesh: meshes.port_mesh.clone(),
+                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    ..default()
+                });
+            }
+
+            for (i, output_id) in node
+                .output_fields()
+                .iter()
+                .filter(|inner_output_id| {
+                    let output_meta = node.get_output_meta(**inner_output_id).unwrap();
+                    output_meta.visible
+                })
+                .enumerate()
+            {
+                let field = node.get_output(*output_id).unwrap();
+                child_builder.spawn(MaterialMesh2dBundle {
+                    transform: Transform::from_xyz(
+                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
+                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
+                            + -(i as f32 * PORT_RADIUS * 3.),
+                        1.,
+                    ),
+                    mesh: meshes.port_mesh.clone(),
+                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    ..default()
+                });
+            }
         });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
     commands.trigger(RequestProcessPipeline);
+}
+
+fn port_color(field: &Field) -> LinearRgba {
+    match field {
+        Field::U32(_) => PINK.into(),
+        Field::F32(_) => YELLOW.into(),
+        Field::Vec4(_) => ORANGE.into(),
+        Field::LinearRgba(_) => ORANGE.into(),
+        Field::Extent3d(_) => TEAL.into(),
+        Field::TextureFormat(_) => RED.into(),
+        Field::Image(_) => WHITE.into(),
+    }
 }
 
 fn node_name(kind: &RequestSpawnNodeKind) -> &'static str {

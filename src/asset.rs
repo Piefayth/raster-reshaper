@@ -36,6 +36,7 @@ fn done_processsing_assets(mut next_state: ResMut<NextState<ApplicationState>>) 
 
 pub const NODE_TITLE_BAR_SIZE: f32 = 25.;
 pub const NODE_TEXTURE_DISPLAY_DIMENSION: f32 = 256.;
+pub const PORT_RADIUS: f32 = 12.;
 
 fn generate_meshes(
     mut commands: Commands,
@@ -48,6 +49,7 @@ fn generate_meshes(
         ..default()
     });
 
+    let port_mesh = Mesh2dHandle(meshes.add(Circle::new(PORT_RADIUS)));
 
     let node_display_quad = Mesh2dHandle(meshes.add(Rectangle::from_size(
         Vec2::splat(NODE_TEXTURE_DISPLAY_DIMENSION) + Vec2::Y * NODE_TITLE_BAR_SIZE,
@@ -56,7 +58,8 @@ fn generate_meshes(
     commands.insert_resource(GeneratedMeshes {
         canvas_quad,
         canvas_quad_material,
-        node_display_quad
+        node_display_quad,
+        port_mesh
     });
 }
 
@@ -119,4 +122,5 @@ pub struct GeneratedMeshes {
     pub canvas_quad: Mesh2dHandle,
     pub canvas_quad_material: Handle<ColorMaterial>,
     pub node_display_quad: Mesh2dHandle,
+    pub port_mesh: Mesh2dHandle,
 }
