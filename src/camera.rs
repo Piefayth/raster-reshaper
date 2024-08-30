@@ -37,7 +37,7 @@ impl Default for MainCamera {
         Self {
             min_zoom: 0.1,
             max_zoom: 5.0,
-            zoom_speed: 0.01,
+            zoom_speed: 0.1, // todo: setting
         }
     }
 }
@@ -76,7 +76,7 @@ fn camera_pan(
     let mut camera_transform = camera_query.single_mut();
 
     for event in drag_events.read() {
-        if event.button == PointerButton::Primary && canvas_query.contains(event.target) {
+        if event.button == PointerButton::Middle && canvas_query.contains(event.target) {
             let delta = event.delta;
             
             camera_transform.translation.x -= delta.x;

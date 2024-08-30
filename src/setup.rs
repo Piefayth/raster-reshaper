@@ -1,18 +1,14 @@
 use std::sync::Arc;
 
 use bevy::{
-    prelude::*,
-    render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper},
-    sprite::MaterialMesh2dBundle,
-    tasks::block_on,
-    window::PresentMode,
+    color::palettes::css::{BLUE, RED}, prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
 };
 use bevy_mod_picking::PickableBundle;
 use petgraph::graph::DiGraph;
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, nodes::Node, ApplicationState
+    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::Line, nodes::Node, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -46,7 +42,15 @@ fn setup_scene(
         material: meshes.canvas_quad_material.clone(),
         transform: Transform::from_xyz(0., 0., -1000.),
         ..default()
-    }).insert(ApplicationCanvas);
+    }).insert(ApplicationCanvas).insert(Visibility::Hidden);
+
+    commands.spawn(Line {
+        start: Vec2::new(-100.0, -50.0),
+        end: Vec2::new(100.0, 50.0),
+        thickness: 10.0,
+        color_start: RED.into(),
+        color_end: BLUE.into(),
+    });
 }
 
 #[derive(Resource, Deref, Clone)]

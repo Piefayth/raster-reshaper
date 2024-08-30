@@ -1,6 +1,7 @@
 use bevy::{app::App, prelude::*, DefaultPlugins};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_picking::DefaultPickingPlugins;
+use line_renderer::LineRenderingPlugin;
 
 mod asset;
 mod graph;
@@ -8,6 +9,7 @@ mod nodes;
 mod setup;
 mod ui;
 mod camera;
+mod line_renderer;
 
 fn main() {
     App::new()
@@ -18,6 +20,7 @@ fn main() {
         .add_plugins(ui::UiPlugin)
         .add_plugins(nodes::NodePlugin)
         .add_plugins(camera::CameraPlugin)
+        .add_plugins(LineRenderingPlugin)
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
         .init_state::<ApplicationState>()
