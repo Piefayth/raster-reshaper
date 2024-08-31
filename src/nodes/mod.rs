@@ -449,9 +449,11 @@ pub fn handle_port_connection(
     window: Query<&Window, With<PrimaryWindow>>,
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
 ) {
     let (camera, camera_transform) = camera_query.single();
     let window = window.single();
+    let graph = &q_pipeline.single().graph;
 
     // Handle drag start
     for event in drag_start_events.read() {
@@ -463,17 +465,22 @@ pub fn handle_port_connection(
         let maybe_input_port = input_port_query.get(port_entity);
         let maybe_output_port = output_port_query.get(port_entity);
 
-        let (port_position, direction) = if let Ok((_, transform, _, _)) = maybe_input_port {
-            (transform.translation().truncate(), Direction::Outgoing)
-        } else if let Ok((_, transform, _, _)) = maybe_output_port {
-            (transform.translation().truncate(), Direction::Incoming)
+        let (port_position, direction, field) = if let Ok((_, transform, input, _)) = maybe_input_port {
+            let node = graph.node_weight(input.node_index).unwrap();
+            let field = node.get_input(input.field_id).unwrap();
+            (transform.translation().truncate(), Direction::Outgoing, field)
+        } else if let Ok((_, transform, output, _)) = maybe_output_port {
+            let node = graph.node_weight(output.node_index).unwrap();
+            let field = node.get_output(output.field_id).unwrap();
+            (transform.translation().truncate(), Direction::Incoming, field)
         } else {
             continue;
         };
 
+
         let line_entity = commands.spawn(Line {
             points: vec![port_position, port_position],
-            colors: vec![Color::WHITE.into(), Color::WHITE.into()],
+            colors: vec![port_color(&field), port_color(&field)],
             thickness: 2.0,
         }).id();
 
@@ -498,6 +505,11 @@ pub fn handle_port_connection(
     }
 
 
+    let ev_drag_end = drag_end_events.read();
+    if ev_drag_end.len() == 0 {
+        return;
+    }
+
     let maybe_hovered_input = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
         if matches!(picking_interaction, PickingInteraction::Hovered) {
             Some(entity)
@@ -515,7 +527,7 @@ pub fn handle_port_connection(
     });
 
     // Handle drag end
-    for event in drag_end_events.read() {
+    for event in ev_drag_end {
         if event.button != PointerButton::Primary {
             continue;
         }
@@ -532,7 +544,6 @@ pub fn handle_port_connection(
     
             match direction {
                 Direction::Outgoing => {
-                    println!("WYA");
                     if let (Ok((_, _, start_input_port, _)), Ok((_, _, end_output_port, _))) = 
                         (input_port_query.get(start_port), output_port_query.get(target_port)) {
                         commands.trigger(AddEdge {
@@ -544,8 +555,6 @@ pub fn handle_port_connection(
                     }
                 },
                 Direction::Incoming => {
-                    println!("{:?}", target_port);
-    
                     if let (Ok((_, _, start_output_port, _)), Ok((_, _, end_input_port, _))) = 
                         (output_port_query.get(start_port), input_port_query.get(target_port)) {
                         commands.trigger(AddEdge {
@@ -557,8 +566,6 @@ pub fn handle_port_connection(
                     }
                 },
             }
-    
-            // Always remove the temporary line
         }
     }
 }
