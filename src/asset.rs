@@ -16,6 +16,7 @@ pub struct AssetPlugin;
 impl Plugin for AssetPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<NodeDisplayMaterial>::default())
+        .add_plugins(Material2dPlugin::<PortMaterial>::default())
             .add_loading_state(
                 LoadingState::new(ApplicationState::AssetLoading)
                     .continue_to_state(ApplicationState::AssetProcessing)
@@ -80,6 +81,8 @@ pub struct ShaderAssets {
     pub default_vert: Handle<Shader>,
     #[asset(path = "shaders/node_display.wgsl")]
     pub node_display: Handle<Shader>,
+    #[asset(path = "shaders/port.wgsl")]
+    pub port: Handle<Shader>,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -108,6 +111,24 @@ pub struct NodeDisplayMaterial {
 impl Material2d for NodeDisplayMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/node_display.wgsl".into()
+    }
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct PortMaterial {
+    #[uniform(0)]
+    pub port_color: LinearRgba,
+    #[uniform(1)]
+    pub outline_color: LinearRgba,
+    #[uniform(2)]
+    pub outline_thickness: f32,
+    #[uniform(3)]
+    pub is_hovered: f32, // Using f32 as a boolean (0.0 or 1.0)
+}
+
+impl Material2d for PortMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/port.wgsl".into()
     }
 }
 

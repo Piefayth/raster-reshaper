@@ -141,8 +141,6 @@ fn process_pipeline(
 
     let thread_pool = AsyncComputeTaskPool::get();
 
-    let device: CustomGpuDevice = render_device.clone();
-    let render_queue = render_queue.clone();
     let graph_copy = pipeline.graph.clone();
 
     let graph_processing_work = async move {

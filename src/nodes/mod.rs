@@ -6,35 +6,27 @@ pub mod shared;
 
 use bevy::{
     color::palettes::{
-        css::{BLACK, MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
+        css::{BLACK, MAGENTA, MINT_CREAM, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
         tailwind::{BLUE_600, CYAN_500, GRAY_200, GRAY_400},
-    },
-    math::VectorSpace,
-    prelude::*,
-    render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle},
+    }, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, window::PrimaryWindow
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Drag, DragStart, Pointer},
+    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{On, PointerButton},
+    prelude::{On, Pickable, PointerButton, PointerInteraction}, PickableBundle,
 };
 use color::ColorNode;
 use example::ExampleNode;
 use fields::{Field, FieldMeta};
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::graph::NodeIndex;
+use petgraph::Direction;
 use wgpu::TextureFormat;
 
 use crate::{
     asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    },
-    graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline},
-    setup::{CustomGpuDevice, CustomGpuQueue},
-    ui::UIContext,
-    ApplicationState,
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, GraphWasUpdated, RequestProcessPipeline}, line_renderer::{Line, LineMaterial}, setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
 };
 
 pub struct NodePlugin;
@@ -43,13 +35,14 @@ impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((handle_node_drag, handle_node_focus), update_node_border)
+            ((handle_node_drag, handle_node_focus, handle_port_hover, handle_port_connection, update_edge_lines), (update_node_border))
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
         app.observe(delete_node);
+        app.observe(add_edge);
     }
 }
 
@@ -235,7 +228,7 @@ fn spawn_requested_node(
     shaders: Res<Assets<Shader>>,
     mut images: ResMut<Assets<Image>>,
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
-    mut color_materials: ResMut<Assets<ColorMaterial>>,
+    mut port_materials: ResMut<Assets<PortMaterial>>,
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
     fonts: Res<FontAssets>,
@@ -341,6 +334,14 @@ fn spawn_requested_node(
                 .enumerate()
             {
                 let field = node.get_input(*input_id).unwrap();
+
+                let port_material = port_materials.add(PortMaterial {
+                    port_color: port_color(&field),
+                    outline_color: Color::WHITE.into(),
+                    outline_thickness: 0.05,
+                    is_hovered: 0.,
+                });
+
                 child_builder.spawn(MaterialMesh2dBundle {
                     transform: Transform::from_xyz(
                         (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
@@ -349,9 +350,14 @@ fn spawn_requested_node(
                         1.,
                     ),
                     mesh: meshes.port_mesh.clone(),
-                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    material: port_material,
                     ..default()
-                });
+                })
+                .insert(InputPort {
+                    node_index: spawned_node_index,
+                    field_id: *input_id,
+                })
+                .insert(PickableBundle::default());
             }
 
             for (i, output_id) in node
@@ -364,6 +370,13 @@ fn spawn_requested_node(
                 .enumerate()
             {
                 let field = node.get_output(*output_id).unwrap();
+                let port_material = port_materials.add(PortMaterial {
+                    port_color: port_color(&field),
+                    outline_color: Color::WHITE.into(),
+                    outline_thickness: 0.05,
+                    is_hovered: 0.,
+                });
+
                 child_builder.spawn(MaterialMesh2dBundle {
                     transform: Transform::from_xyz(
                         (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
@@ -372,15 +385,269 @@ fn spawn_requested_node(
                         1.,
                     ),
                     mesh: meshes.port_mesh.clone(),
-                    material: color_materials.add(ColorMaterial::from_color(port_color(&field))),
+                    material: port_material,
                     ..default()
-                });
+                })
+                .insert(OutputPort {
+                    node_index: spawned_node_index,
+                    field_id: *output_id,
+                })
+                .insert(PickableBundle::default());
             }
         });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
     commands.trigger(RequestProcessPipeline);
+}
+
+#[derive(Component)]
+pub struct InputPort {
+    pub node_index: NodeIndex,
+    pub field_id: InputId,
+}
+
+#[derive(Component)]
+pub struct OutputPort {
+    pub node_index: NodeIndex,
+    pub field_id: OutputId,
+}
+
+#[derive(Event)]
+pub struct AddEdge {
+    pub start_port: Entity,
+    pub end_port: Entity,
+}
+
+fn add_edge(
+    trigger: Trigger<AddEdge>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
+    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
+        q_output_ports.get(trigger.event().start_port),
+        q_input_ports.get(trigger.event().end_port)
+    ) {
+        let edge = Edge {
+            from_field: start_port.field_id,
+            to_field: end_port.field_id,
+        };
+
+        match pipeline.graph.add_edge_checked(start_port.node_index, end_port.node_index, edge) {
+            Ok(()) => {
+                let start = start_transform.translation().truncate();
+                let end = end_transform.translation().truncate();
+                let curve_points = generate_curved_line(start, end, 50);
+
+                // Get the colors from the graph nodes
+                let start_node = pipeline.graph.node_weight(start_port.node_index).unwrap();
+                let end_node = pipeline.graph.node_weight(end_port.node_index).unwrap();
+                let start_color = port_color(&start_node.get_output(start_port.field_id).unwrap());
+                let end_color = port_color(&end_node.get_input(end_port.field_id).unwrap());
+
+                let curve_colors = generate_color_gradient(start_color, end_color, curve_points.len());
+
+                commands.spawn((
+                    Line {
+                        points: curve_points,
+                        colors: curve_colors,
+                        thickness: 2.0,
+                    },
+                    EdgeLine {
+                        start_port: trigger.event().start_port,
+                        end_port: trigger.event().end_port,
+                    }
+                ));
+
+                // Trigger pipeline process
+                commands.trigger(RequestProcessPipeline);
+            },
+            Err(e) => {
+                println!("Error adding edge: {}", e);
+            }
+        }
+    } else {
+        println!("Error: Could not find one or both of the ports");
+    }
+}
+
+fn update_edge_lines(
+    mut q_lines: Query<(&mut Line, &EdgeLine)>,
+    q_output_ports: Query<&GlobalTransform, With<OutputPort>>,
+    q_input_ports: Query<&GlobalTransform, With<InputPort>>,
+) {
+    for (mut line, edge_line) in q_lines.iter_mut() {
+        if let (Ok(start_transform), Ok(end_transform)) = (
+            q_output_ports.get(edge_line.start_port),
+            q_input_ports.get(edge_line.end_port)
+        ) {
+            let start = start_transform.translation().truncate();
+            let end = end_transform.translation().truncate();
+            let new_points = generate_curved_line(start, end, line.points.len());
+            line.points = new_points;
+        }
+    }
+}
+
+#[derive(Component)]
+struct EdgeLine {
+    start_port: Entity,
+    end_port: Entity,
+}
+
+#[derive(Clone, Copy)]
+pub struct SelectingPort {
+    pub port: Entity,
+    pub position: Vec2,
+    pub line: Entity,
+    pub direction: Direction,
+}
+
+pub fn handle_port_connection(
+    mut commands: Commands,
+    mut line_query: Query<(Entity, &mut Line)>,
+    input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
+    output_port_query: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut selecting_port: Local<Option<SelectingPort>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut drag_start_events: EventReader<Pointer<DragStart>>,
+    mut drag_end_events: EventReader<Pointer<DragEnd>>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
+) {
+    let (camera, camera_transform) = camera_query.single();
+    let window = window.single();
+    let graph = &q_pipeline.single().graph;
+
+    // Handle drag start
+    for event in drag_start_events.read() {
+        if event.button != PointerButton::Primary {
+            continue;
+        }
+
+        let port_entity = event.target;
+        let maybe_input_port = input_port_query.get(port_entity);
+        let maybe_output_port = output_port_query.get(port_entity);
+
+        let (port_position, direction, field) = if let Ok((_, transform, input, _)) = maybe_input_port {
+            let node = graph.node_weight(input.node_index).unwrap();
+            let field = node.get_input(input.field_id).unwrap();
+            (transform.translation().truncate(), Direction::Outgoing, field)
+        } else if let Ok((_, transform, output, _)) = maybe_output_port {
+            let node = graph.node_weight(output.node_index).unwrap();
+            let field = node.get_output(output.field_id).unwrap();
+            (transform.translation().truncate(), Direction::Incoming, field)
+        } else {
+            continue;
+        };
+
+
+        let line_entity = commands.spawn(Line {
+            points: vec![port_position, port_position],
+            colors: vec![port_color(&field), port_color(&field)],
+            thickness: 2.0,
+        }).id();
+
+        *selecting_port = Some(SelectingPort {
+            port: port_entity,
+            position: port_position,
+            line: line_entity,
+            direction
+        });
+    }
+
+    // Update line position during drag
+    if let Some(SelectingPort { position: start_position, line, .. }) = *selecting_port {
+        if let Some(cursor_position) = window.cursor_position() {
+            if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position) {
+                let cursor_world_position = cursor_world_position.origin.truncate();
+                if let Ok((_, mut line)) = line_query.get_mut(line) {
+                    line.points = vec![start_position, cursor_world_position];
+                }
+            }
+        }
+    }
+
+
+    let ev_drag_end = drag_end_events.read();
+    if ev_drag_end.len() == 0 {
+        return;
+    }
+
+    let maybe_hovered_input = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
+        if matches!(picking_interaction, PickingInteraction::Hovered) {
+            Some(entity)
+        } else {
+            None
+        }
+    });
+
+    let maybe_hovered_output = output_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
+        if matches!(picking_interaction, PickingInteraction::Hovered) {
+            Some(entity)
+        } else {
+            None
+        }
+    });
+
+    // Handle drag end
+    for event in ev_drag_end {
+        if event.button != PointerButton::Primary {
+            continue;
+        }
+    
+        if let Some(SelectingPort { port: start_port, line, direction, .. }) = *selecting_port {
+            commands.entity(line).despawn_recursive();
+            *selecting_port = None;
+
+            match direction {
+                Direction::Incoming => {
+                    if let Some(end_port) = maybe_hovered_input {
+                        commands.trigger(AddEdge {
+                            start_port,
+                            end_port,
+                        });
+                    }
+                },
+                Direction::Outgoing => {
+                    if let Some(start_port) = maybe_hovered_output {
+                        commands.trigger(AddEdge {
+                            start_port,
+                            end_port: start_port,
+                        });
+                    }
+                },
+            }
+        }
+    }
+}
+
+
+fn handle_port_hover(
+    mut materials: ResMut<Assets<PortMaterial>>,
+    mut interaction_query: Query<
+        (&PickingInteraction, &Handle<PortMaterial>),
+        (Changed<PickingInteraction>, Or<(With<InputPort>, With<OutputPort>)>)
+    >,
+) {
+    for (interaction, material_handle) in interaction_query.iter_mut() {
+        if let Some(material) = materials.get_mut(material_handle) {
+            match *interaction {
+                PickingInteraction::Pressed => {
+                    material.is_hovered = 1.0;
+                },
+                PickingInteraction::Hovered => {
+                    material.is_hovered = 1.0;
+                }
+                _ => {
+                    material.is_hovered = 0.0;
+                }
+            }
+        }
+    }
 }
 
 fn port_color(field: &Field) -> LinearRgba {
@@ -391,7 +658,7 @@ fn port_color(field: &Field) -> LinearRgba {
         Field::LinearRgba(_) => ORANGE.into(),
         Field::Extent3d(_) => TEAL.into(),
         Field::TextureFormat(_) => RED.into(),
-        Field::Image(_) => WHITE.into(),
+        Field::Image(_) => GRAY_400.into(),
     }
 }
 

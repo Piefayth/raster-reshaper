@@ -1,6 +1,7 @@
 use std::{borrow::Cow, time::Instant};
 
 use bevy::{
+    color::palettes::css::WHITE,
     prelude::*,
     render::{
         render_asset::RenderAssetUsages,
@@ -37,7 +38,7 @@ declare_node!(
         #[entity] entity: Entity,
         #[input] texture_extents: Extent3d   { meta: FieldMeta { visible: false }},
         #[input] texture_format: TextureFormat  { meta: FieldMeta { visible: false }},
-        #[input] triangle_color: Vec4   { meta: FieldMeta { visible: true }},
+        #[input] triangle_color: LinearRgba   { meta: FieldMeta { visible: true }},
         #[output] output_image: Option<Image>  { meta: FieldMeta { visible: true }},
         render_device: CustomGpuDevice,
         render_queue: CustomGpuQueue,
@@ -238,7 +239,7 @@ declare_node!(
                 texture_extents,
                 texture_format,
                 output_image: None,
-                triangle_color: Vec4::ONE,
+                triangle_color: WHITE.into(),
                 entity,
                 input_meta: HashMap::new(),
                 output_meta: HashMap::new(),
@@ -249,7 +250,7 @@ declare_node!(
                 label: Some("Command Encoder Descriptor"),
             });
 
-            self.render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[self.triangle_color .x, self.triangle_color .y, self.triangle_color .z, self.triangle_color .w]));
+            self.render_queue.write_buffer(&self.color_buffer, 0, bytemuck::cast_slice(&[self.triangle_color.red, self.triangle_color.green, self.triangle_color.blue, self.triangle_color.alpha]));
 
             {
                 let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {

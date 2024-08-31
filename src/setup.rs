@@ -1,18 +1,14 @@
 use std::sync::Arc;
 
 use bevy::{
-    prelude::*,
-    render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper},
-    sprite::MaterialMesh2dBundle,
-    tasks::block_on,
-    window::PresentMode,
+    color::palettes::css::{BLUE, GREEN, RED, YELLOW}, math::VectorSpace, prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
 };
 use bevy_mod_picking::PickableBundle;
 use petgraph::graph::DiGraph;
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, nodes::Node, ApplicationState
+    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::Line, nodes::Node, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -92,4 +88,50 @@ fn spawn_graph_entity(mut commands: Commands) {
 
 fn done_setting_up(mut next_state: ResMut<NextState<ApplicationState>>) {
     next_state.set(ApplicationState::MainLoop);
+}
+
+pub fn generate_curved_line(start: Vec2, end: Vec2, segments: usize) -> Vec<Vec2> {
+    let diff = end - start;
+    let dist = diff.length();
+    
+    // Calculate control points
+    let control1 = start + Vec2::new(dist * 0.25, 0.0);
+    let control2 = end - Vec2::new(dist * 0.25, 0.0);
+
+    generate_cubic_bezier(start, control1, control2, end, segments)
+}
+
+
+fn generate_cubic_bezier(start: Vec2, control1: Vec2, control2: Vec2, end: Vec2, segments: usize) -> Vec<Vec2> {
+    let mut points = Vec::with_capacity(segments);
+    for i in 0..segments {
+        let t = i as f32 / (segments - 1) as f32;
+        let point = cubic_bezier_point(start, control1, control2, end, t);
+        points.push(point);
+    }
+    points
+}
+
+fn cubic_bezier_point(start: Vec2, control1: Vec2, control2: Vec2, end: Vec2, t: f32) -> Vec2 {
+    let u = 1.0 - t;
+    let tt = t * t;
+    let uu = u * u;
+    let uuu = uu * u;
+    let ttt = tt * t;
+    
+    let p = uuu * start
+        + 3.0 * uu * t * control1
+        + 3.0 * u * tt * control2
+        + ttt * end;
+    p
+}
+
+pub fn generate_color_gradient(start_color: LinearRgba, end_color: LinearRgba, steps: usize) -> Vec<LinearRgba> {
+    let mut colors = Vec::with_capacity(steps);
+    for i in 0..steps {
+        let t = i as f32 / (steps - 1) as f32;
+        let color = LinearRgba::lerp(&start_color, end_color, t);
+        colors.push(color);
+    }
+    colors
 }
