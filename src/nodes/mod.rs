@@ -6,14 +6,9 @@ pub mod shared;
 
 use bevy::{
     color::palettes::{
-        css::{BLACK, MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
+        css::{BLACK, MAGENTA, MINT_CREAM, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
         tailwind::{BLUE_600, CYAN_500, GRAY_200, GRAY_400},
-    },
-    math::VectorSpace,
-    prelude::*,
-    render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle}, window::PrimaryWindow,
-    ui::Direction as UIDirection
+    }, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
@@ -31,7 +26,7 @@ use wgpu::TextureFormat;
 use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS
-    }, camera::MainCamera, graph::{DisjointPipelineGraph, GraphWasUpdated, RequestProcessPipeline}, line_renderer::{Line}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, GraphWasUpdated, RequestProcessPipeline}, line_renderer::{Line, LineMaterial}, setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
 };
 
 pub struct NodePlugin;
@@ -40,7 +35,7 @@ impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((handle_node_drag, handle_node_focus, handle_port_hover, handle_port_connection), update_node_border)
+            ((handle_node_drag, handle_node_focus, handle_port_hover, handle_port_connection, update_edge_lines), (update_node_border))
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
@@ -420,16 +415,88 @@ pub struct OutputPort {
 
 #[derive(Event)]
 pub struct AddEdge {
-    pub start_node: NodeIndex,
-    pub end_node: NodeIndex,
-    pub output_field: OutputId,
-    pub input_field: InputId,
+    pub start_port: Entity,
+    pub end_port: Entity,
 }
 
-fn add_edge(_trigger: Trigger<AddEdge>) {
-    println!("bazinga");
+fn add_edge(
+    trigger: Trigger<AddEdge>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
+    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
+        q_output_ports.get(trigger.event().start_port),
+        q_input_ports.get(trigger.event().end_port)
+    ) {
+        let edge = Edge {
+            from_field: start_port.field_id,
+            to_field: end_port.field_id,
+        };
+
+        match pipeline.graph.add_edge_checked(start_port.node_index, end_port.node_index, edge) {
+            Ok(()) => {
+                let start = start_transform.translation().truncate();
+                let end = end_transform.translation().truncate();
+                let curve_points = generate_curved_line(start, end, 50);
+
+                // Get the colors from the graph nodes
+                let start_node = pipeline.graph.node_weight(start_port.node_index).unwrap();
+                let end_node = pipeline.graph.node_weight(end_port.node_index).unwrap();
+                let start_color = port_color(&start_node.get_output(start_port.field_id).unwrap());
+                let end_color = port_color(&end_node.get_input(end_port.field_id).unwrap());
+
+                let curve_colors = generate_color_gradient(start_color, end_color, curve_points.len());
+
+                commands.spawn((
+                    Line {
+                        points: curve_points,
+                        colors: curve_colors,
+                        thickness: 2.0,
+                    },
+                    EdgeLine {
+                        start_port: trigger.event().start_port,
+                        end_port: trigger.event().end_port,
+                    }
+                ));
+
+                // Trigger pipeline process
+                commands.trigger(RequestProcessPipeline);
+            },
+            Err(e) => {
+                println!("Error adding edge: {}", e);
+            }
+        }
+    } else {
+        println!("Error: Could not find one or both of the ports");
+    }
 }
 
+fn update_edge_lines(
+    mut q_lines: Query<(&mut Line, &EdgeLine)>,
+    q_output_ports: Query<&GlobalTransform, With<OutputPort>>,
+    q_input_ports: Query<&GlobalTransform, With<InputPort>>,
+) {
+    for (mut line, edge_line) in q_lines.iter_mut() {
+        if let (Ok(start_transform), Ok(end_transform)) = (
+            q_output_ports.get(edge_line.start_port),
+            q_input_ports.get(edge_line.end_port)
+        ) {
+            let start = start_transform.translation().truncate();
+            let end = end_transform.translation().truncate();
+            let new_points = generate_curved_line(start, end, line.points.len());
+            line.points = new_points;
+        }
+    }
+}
+
+#[derive(Component)]
+struct EdgeLine {
+    start_port: Entity,
+    end_port: Entity,
+}
 
 #[derive(Clone, Copy)]
 pub struct SelectingPort {
@@ -518,7 +585,7 @@ pub fn handle_port_connection(
         }
     });
 
-    let maybe_hovered_output = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
+    let maybe_hovered_output = output_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
         if matches!(picking_interaction, PickingInteraction::Hovered) {
             Some(entity)
         } else {
@@ -536,32 +603,20 @@ pub fn handle_port_connection(
             commands.entity(line).despawn_recursive();
             *selecting_port = None;
 
-            if (maybe_hovered_input.is_none() && matches!(direction, Direction::Outgoing)) || (maybe_hovered_output.is_none() && matches!(direction, Direction::Incoming)) {
-                continue;
-            }
-
-            let target_port = maybe_hovered_input.unwrap_or_else(|| maybe_hovered_output.unwrap());
-    
             match direction {
-                Direction::Outgoing => {
-                    if let (Ok((_, _, start_input_port, _)), Ok((_, _, end_output_port, _))) = 
-                        (input_port_query.get(start_port), output_port_query.get(target_port)) {
+                Direction::Incoming => {
+                    if let Some(end_port) = maybe_hovered_input {
                         commands.trigger(AddEdge {
-                            start_node: end_output_port.node_index,
-                            end_node: start_input_port.node_index,
-                            output_field: end_output_port.field_id,
-                            input_field: start_input_port.field_id,
+                            start_port,
+                            end_port,
                         });
                     }
                 },
-                Direction::Incoming => {
-                    if let (Ok((_, _, start_output_port, _)), Ok((_, _, end_input_port, _))) = 
-                        (output_port_query.get(start_port), input_port_query.get(target_port)) {
+                Direction::Outgoing => {
+                    if let Some(start_port) = maybe_hovered_output {
                         commands.trigger(AddEdge {
-                            start_node: start_output_port.node_index,
-                            end_node: end_input_port.node_index,
-                            output_field: start_output_port.field_id,
-                            input_field: end_input_port.field_id,
+                            start_port,
+                            end_port: start_port,
                         });
                     }
                 },
@@ -603,7 +658,7 @@ fn port_color(field: &Field) -> LinearRgba {
         Field::LinearRgba(_) => ORANGE.into(),
         Field::Extent3d(_) => TEAL.into(),
         Field::TextureFormat(_) => RED.into(),
-        Field::Image(_) => WHITE.into(),
+        Field::Image(_) => GRAY_400.into(),
     }
 }
 

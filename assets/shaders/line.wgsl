@@ -28,7 +28,6 @@ fn vertex(vertex: LineVertex, @builtin(instance_index) instance_index: u32) -> V
     let model = mesh2d_functions::get_world_from_local(instance_index);
     let world_position = mesh2d_functions::mesh2d_position_local_to_world(model, vec4<f32>(vertex.position, 1.0));
     
-    // Adjust the position based on the normal, miter, and thickness
     let thickness = line_material.thickness;
     let expanded_position = world_position.xy + vertex.normal * thickness * vertex.miter;
     
