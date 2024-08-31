@@ -8,25 +8,39 @@ use bevy::{
     color::palettes::{
         css::{BLACK, MAGENTA, MINT_CREAM, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
         tailwind::{BLUE_600, CYAN_500, GRAY_200, GRAY_400},
-    }, math::VectorSpace, prelude::*, render::render_resource::Source, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, window::PrimaryWindow
+    },
+    math::VectorSpace,
+    prelude::*,
+    render::render_resource::Source,
+    sprite::{Anchor, MaterialMesh2dBundle},
+    ui::Direction as UIDirection,
+    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
     events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{On, Pickable, PointerButton, PointerInteraction}, PickableBundle,
+    prelude::{On, Pickable, PointerButton, PointerInteraction},
+    PickableBundle,
 };
 use color::ColorNode;
 use example::ExampleNode;
 use fields::{Field, FieldMeta};
 use macros::macros::declare_node_enum_and_impl_trait;
-use petgraph::graph::NodeIndex;
 use petgraph::Direction;
+use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use wgpu::TextureFormat;
 
 use crate::{
     asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, GraphWasUpdated, RequestProcessPipeline}, line_renderer::{Line, LineMaterial}, setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue}, ui::UIContext, ApplicationState
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
+    },
+    camera::MainCamera,
+    graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, GraphWasUpdated, RequestProcessPipeline},
+    line_renderer::{Line, LineMaterial},
+    setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue},
+    ui::UIContext,
+    ApplicationState,
 };
 
 pub struct NodePlugin;
@@ -35,7 +49,16 @@ impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((handle_node_drag, handle_node_focus, handle_port_hover, handle_port_connection, update_edge_lines), (update_node_border))
+            (
+                (
+                    handle_node_drag,
+                    handle_node_focus,
+                    handle_port_hover,
+                    handle_port_connection,
+                    update_edge_lines,
+                ),
+                (update_node_border),
+            )
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
@@ -101,13 +124,33 @@ fn delete_node(
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_nodes: Query<&NodeDisplay>,
+    q_edge_lines: Query<(Entity, &EdgeLine)>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let node = q_nodes.get(trigger.event().node).unwrap();
 
+    let node_ports: Vec<Entity> = q_input_ports
+        .iter()
+        .filter_map(|(entity, port)| (port.node_index == node.index).then_some(entity))
+        .chain(
+            q_output_ports
+                .iter()
+                .filter_map(|(entity, port)| (port.node_index == node.index).then_some(entity)),
+        )
+        .collect();
+
+    for (edge_line_entity, edge_line) in q_edge_lines.iter() {
+        if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
+            commands.entity(edge_line_entity).despawn();
+        }
+    }
+
     pipeline.graph.remove_node(node.index);
 
     commands.entity(trigger.event().node).despawn_recursive();
+
     commands.trigger(RequestProcessPipeline);
 }
 
@@ -342,22 +385,23 @@ fn spawn_requested_node(
                     is_hovered: 0.,
                 });
 
-                child_builder.spawn(MaterialMesh2dBundle {
-                    transform: Transform::from_xyz(
-                        (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
-                            + -(i as f32 * PORT_RADIUS * 3.),
-                        1.,
-                    ),
-                    mesh: meshes.port_mesh.clone(),
-                    material: port_material,
-                    ..default()
-                })
-                .insert(InputPort {
-                    node_index: spawned_node_index,
-                    field_id: *input_id,
-                })
-                .insert(PickableBundle::default());
+                child_builder
+                    .spawn(MaterialMesh2dBundle {
+                        transform: Transform::from_xyz(
+                            (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
+                            (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
+                                + -(i as f32 * PORT_RADIUS * 3.),
+                            1.,
+                        ),
+                        mesh: meshes.port_mesh.clone(),
+                        material: port_material,
+                        ..default()
+                    })
+                    .insert(InputPort {
+                        node_index: spawned_node_index,
+                        field_id: *input_id,
+                    })
+                    .insert(PickableBundle::default());
             }
 
             for (i, output_id) in node
@@ -377,22 +421,23 @@ fn spawn_requested_node(
                     is_hovered: 0.,
                 });
 
-                child_builder.spawn(MaterialMesh2dBundle {
-                    transform: Transform::from_xyz(
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
-                            + -(i as f32 * PORT_RADIUS * 3.),
-                        1.,
-                    ),
-                    mesh: meshes.port_mesh.clone(),
-                    material: port_material,
-                    ..default()
-                })
-                .insert(OutputPort {
-                    node_index: spawned_node_index,
-                    field_id: *output_id,
-                })
-                .insert(PickableBundle::default());
+                child_builder
+                    .spawn(MaterialMesh2dBundle {
+                        transform: Transform::from_xyz(
+                            (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
+                            (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
+                                + -(i as f32 * PORT_RADIUS * 3.),
+                            1.,
+                        ),
+                        mesh: meshes.port_mesh.clone(),
+                        material: port_material,
+                        ..default()
+                    })
+                    .insert(OutputPort {
+                        node_index: spawned_node_index,
+                        field_id: *output_id,
+                    })
+                    .insert(PickableBundle::default());
             }
         });
 
@@ -429,14 +474,17 @@ fn add_edge(
     let mut pipeline = q_pipeline.single_mut();
     if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
         q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port)
+        q_input_ports.get(trigger.event().end_port),
     ) {
         let edge = Edge {
             from_field: start_port.field_id,
             to_field: end_port.field_id,
         };
 
-        match pipeline.graph.add_edge_checked(start_port.node_index, end_port.node_index, edge) {
+        match pipeline
+            .graph
+            .add_edge_checked(start_port.node_index, end_port.node_index, edge)
+        {
             Ok(()) => {
                 let start = start_transform.translation().truncate();
                 let end = end_transform.translation().truncate();
@@ -448,7 +496,8 @@ fn add_edge(
                 let start_color = port_color(&start_node.get_output(start_port.field_id).unwrap());
                 let end_color = port_color(&end_node.get_input(end_port.field_id).unwrap());
 
-                let curve_colors = generate_color_gradient(start_color, end_color, curve_points.len());
+                let curve_colors =
+                    generate_color_gradient(start_color, end_color, curve_points.len());
 
                 commands.spawn((
                     Line {
@@ -459,12 +508,12 @@ fn add_edge(
                     EdgeLine {
                         start_port: trigger.event().start_port,
                         end_port: trigger.event().end_port,
-                    }
+                    },
                 ));
 
                 // Trigger pipeline process
                 commands.trigger(RequestProcessPipeline);
-            },
+            }
             Err(e) => {
                 println!("Error adding edge: {}", e);
             }
@@ -482,7 +531,7 @@ fn update_edge_lines(
     for (mut line, edge_line) in q_lines.iter_mut() {
         if let (Ok(start_transform), Ok(end_transform)) = (
             q_output_ports.get(edge_line.start_port),
-            q_input_ports.get(edge_line.end_port)
+            q_input_ports.get(edge_line.end_port),
         ) {
             let start = start_transform.translation().truncate();
             let end = end_transform.translation().truncate();
@@ -532,37 +581,54 @@ pub fn handle_port_connection(
         let maybe_input_port = input_port_query.get(port_entity);
         let maybe_output_port = output_port_query.get(port_entity);
 
-        let (port_position, direction, field) = if let Ok((_, transform, input, _)) = maybe_input_port {
-            let node = graph.node_weight(input.node_index).unwrap();
-            let field = node.get_input(input.field_id).unwrap();
-            (transform.translation().truncate(), Direction::Outgoing, field)
-        } else if let Ok((_, transform, output, _)) = maybe_output_port {
-            let node = graph.node_weight(output.node_index).unwrap();
-            let field = node.get_output(output.field_id).unwrap();
-            (transform.translation().truncate(), Direction::Incoming, field)
-        } else {
-            continue;
-        };
+        let (port_position, direction, field) =
+            if let Ok((_, transform, input, _)) = maybe_input_port {
+                let node = graph.node_weight(input.node_index).unwrap();
+                let field = node.get_input(input.field_id).unwrap();
+                (
+                    transform.translation().truncate(),
+                    Direction::Outgoing,
+                    field,
+                )
+            } else if let Ok((_, transform, output, _)) = maybe_output_port {
+                let node = graph.node_weight(output.node_index).unwrap();
+                let field = node.get_output(output.field_id).unwrap();
+                (
+                    transform.translation().truncate(),
+                    Direction::Incoming,
+                    field,
+                )
+            } else {
+                continue;
+            };
 
-
-        let line_entity = commands.spawn(Line {
-            points: vec![port_position, port_position],
-            colors: vec![port_color(&field), port_color(&field)],
-            thickness: 2.0,
-        }).id();
+        let line_entity = commands
+            .spawn(Line {
+                points: vec![port_position, port_position],
+                colors: vec![port_color(&field), port_color(&field)],
+                thickness: 2.0,
+            })
+            .id();
 
         *selecting_port = Some(SelectingPort {
             port: port_entity,
             position: port_position,
             line: line_entity,
-            direction
+            direction,
         });
     }
 
     // Update line position during drag
-    if let Some(SelectingPort { position: start_position, line, .. }) = *selecting_port {
+    if let Some(SelectingPort {
+        position: start_position,
+        line,
+        ..
+    }) = *selecting_port
+    {
         if let Some(cursor_position) = window.cursor_position() {
-            if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position) {
+            if let Some(cursor_world_position) =
+                camera.viewport_to_world(camera_transform, cursor_position)
+            {
                 let cursor_world_position = cursor_world_position.origin.truncate();
                 if let Ok((_, mut line)) = line_query.get_mut(line) {
                     line.points = vec![start_position, cursor_world_position];
@@ -571,66 +637,79 @@ pub fn handle_port_connection(
         }
     }
 
-
     let ev_drag_end = drag_end_events.read();
     if ev_drag_end.len() == 0 {
         return;
     }
 
-    let maybe_hovered_input = input_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
-        if matches!(picking_interaction, PickingInteraction::Hovered) {
-            Some(entity)
-        } else {
-            None
-        }
-    });
+    let maybe_hovered_input =
+        input_port_query
+            .iter()
+            .find_map(|(entity, _, _, picking_interaction)| {
+                if matches!(picking_interaction, PickingInteraction::Hovered) {
+                    Some(entity)
+                } else {
+                    None
+                }
+            });
 
-    let maybe_hovered_output = output_port_query.iter().find_map(|(entity, _, _, picking_interaction)| {
-        if matches!(picking_interaction, PickingInteraction::Hovered) {
-            Some(entity)
-        } else {
-            None
-        }
-    });
+    let maybe_hovered_output =
+        output_port_query
+            .iter()
+            .find_map(|(entity, _, _, picking_interaction)| {
+                if matches!(picking_interaction, PickingInteraction::Hovered) {
+                    Some(entity)
+                } else {
+                    None
+                }
+            });
 
     // Handle drag end
     for event in ev_drag_end {
         if event.button != PointerButton::Primary {
             continue;
         }
-    
-        if let Some(SelectingPort { port: start_port, line, direction, .. }) = *selecting_port {
+
+        if let Some(SelectingPort {
+            port: start_port,
+            line,
+            direction,
+            ..
+        }) = *selecting_port
+        {
             commands.entity(line).despawn_recursive();
             *selecting_port = None;
 
             match direction {
                 Direction::Incoming => {
-                    if let Some(end_port) = maybe_hovered_input {
+                    if let Some(input_port) = maybe_hovered_input {
                         commands.trigger(AddEdge {
                             start_port,
-                            end_port,
+                            end_port: input_port,
                         });
                     }
-                },
+                }
                 Direction::Outgoing => {
-                    if let Some(start_port) = maybe_hovered_output {
+                    if let Some(output_port) = maybe_hovered_output {
                         commands.trigger(AddEdge {
-                            start_port,
+                            start_port: output_port,
                             end_port: start_port,
                         });
                     }
-                },
+                }
             }
         }
     }
 }
 
-
 fn handle_port_hover(
     mut materials: ResMut<Assets<PortMaterial>>,
     mut interaction_query: Query<
         (&PickingInteraction, &Handle<PortMaterial>),
-        (Changed<PickingInteraction>, Or<(With<InputPort>, With<OutputPort>)>)
+        (
+            Changed<PickingInteraction>,
+            Or<(With<InputPort>, With<OutputPort>)>,
+        ),
     >,
 ) {
     for (interaction, material_handle) in interaction_query.iter_mut() {
@@ -638,7 +717,7 @@ fn handle_port_hover(
             match *interaction {
                 PickingInteraction::Pressed => {
                     material.is_hovered = 1.0;
-                },
+                }
                 PickingInteraction::Hovered => {
                     material.is_hovered = 1.0;
                 }

@@ -124,7 +124,7 @@ fn update_line_meshes(
         commands.entity(entity).try_insert(MaterialMesh2dBundle {
             mesh: bevy::sprite::Mesh2dHandle(meshes.add(mesh)),
             material: materials.add(LineMaterial { thickness: line.thickness }),
-            transform: Transform::from_xyz(0.0, 0.0, -1000.0),
+            transform: Transform::from_xyz(0.0, 0.0, -999.0),
             ..default()
         });
     }

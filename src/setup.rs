@@ -4,7 +4,7 @@ use bevy::{
     color::palettes::css::{BLUE, GREEN, RED, YELLOW}, math::VectorSpace, prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
 };
 use bevy_mod_picking::PickableBundle;
-use petgraph::graph::DiGraph;
+use petgraph::{graph::DiGraph, prelude::StableDiGraph};
 use wgpu::{Features, Limits};
 
 use crate::{
@@ -79,7 +79,7 @@ fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
 }
 
 fn spawn_graph_entity(mut commands: Commands) {
-    let graph = DiGraph::<Node, Edge>::new();
+    let graph = StableDiGraph::<Node, Edge>::new();
 
     commands.spawn(DisjointPipelineGraph { graph });
 

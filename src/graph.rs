@@ -8,9 +8,7 @@ use bevy::{
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
-    graph::{DiGraph, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences},
-    Direction,
+    graph::{DiGraph, NodeIndex}, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
 };
 
 pub struct GraphPlugin;
@@ -28,7 +26,7 @@ impl Plugin for GraphPlugin {
 
 #[derive(Component, Clone)]
 pub struct DisjointPipelineGraph {
-    pub graph: DiGraph<Node, Edge>,
+    pub graph: StableDiGraph<Node, Edge>,
 }
 
 #[derive(Component, Deref)]
@@ -240,7 +238,7 @@ async fn process_node(
 
 // Determines which nodes have resolved dependencies and are not currently being processed.
 fn get_processible_nodes(
-    graph: &DiGraph<Node, Edge>,
+    graph: &StableDiGraph<Node, Edge>,
     unprocessed_nodes: &HashSet<NodeIndex>,
     in_flight_nodes: &HashSet<NodeIndex>,
 ) -> Vec<ProcessNode> {
@@ -279,7 +277,7 @@ pub trait AddEdgeChecked {
     ) -> Result<(), String>;
 }
 
-impl AddEdgeChecked for DiGraph<Node, Edge> {
+impl AddEdgeChecked for StableDiGraph<Node, Edge> {
     fn add_edge_checked(
         &mut self,
         from: NodeIndex,
