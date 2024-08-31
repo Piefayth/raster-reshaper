@@ -14,10 +14,10 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
     PickableBundle,
 };
-
+use petgraph::{graph::NodeIndex};
 use crate::{
     asset::FontAssets,
-    nodes::{RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind},
+    nodes::{RequestDeleteNode, RequestDetatchInput, RequestDetatchOutput, RequestSpawnNode, RequestSpawnNodeKind},
     ApplicationState,
 };
 
@@ -114,6 +114,32 @@ impl ContextMenu {
                     );
                 });
             }
+            UIContext::InputPort(input_port_context) => {
+                ec.with_children(|child_builder| {
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Detatch",
+                        font.clone(),
+                        RequestDetatchInput {
+                            node: input_port_context.node,
+                            port: input_port_context.port,
+                        },
+                    );
+                });
+            },
+            UIContext::OutputPort(output_port_context) => {
+                ec.with_children(|child_builder| {
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Detatch",
+                        font.clone(),
+                        RequestDetatchOutput {
+                            node: output_port_context.node,
+                            port: output_port_context.port,
+                        },
+                    );
+                });
+            },
         }
 
         ec

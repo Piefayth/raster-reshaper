@@ -7,8 +7,8 @@ use bevy::{
 use bevy_mod_picking::prelude::Pickable;
 use context_menu::ContextMenuPlugin;
 use inspector::{InspectorPanel, InspectorPlugin};
-
-use crate::ApplicationState;
+use petgraph::{graph::NodeIndex};
+use crate::{nodes::{InputId, OutputId}, ApplicationState};
 
 pub mod context_menu;
 pub mod inspector;
@@ -46,7 +46,22 @@ pub enum UIContext {
     NodeEditArea,
     Inspector,
     Node(Entity),
+    InputPort(InputPortContext),
+    OutputPort(OutputPortContext)
 }
+
+#[derive(Debug)]
+pub struct InputPortContext {
+    pub node: NodeIndex,
+    pub port: InputId,
+}
+
+#[derive(Debug)]
+pub struct OutputPortContext {
+    pub node: NodeIndex,
+    pub port: OutputId,
+}
+
 
 #[derive(Component)]
 pub struct UiRoot;

@@ -305,6 +305,18 @@ impl AddEdgeChecked for StableDiGraph<Node, Edge> {
             ));
         }
 
+        // Check if the 'to' node already has an edge to the specified input field
+        let input_already_used = self
+            .edges_directed(to, Direction::Incoming)
+            .any(|e| e.weight().to_field == edge.to_field);
+
+        if input_already_used {
+            return Err(format!(
+                "Input field {:?} at node {:?} already has an incoming edge",
+                edge.to_field, to
+            ));
+        }
+
         self.add_edge(from, to, edge);
         Ok(())
     }

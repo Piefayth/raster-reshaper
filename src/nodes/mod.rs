@@ -4,12 +4,23 @@ pub mod fields;
 pub mod macros;
 pub mod shared;
 
+use crate::{
+    asset::{
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
+    },
+    camera::MainCamera,
+    graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
+    line_renderer::Line,
+    setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue},
+    ui::{InputPortContext, OutputPortContext, UIContext},
+    ApplicationState,
+};
 use bevy::{
     color::palettes::{
-        css::{BLACK, MAGENTA, MINT_CREAM, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
-        tailwind::{BLUE_600, CYAN_500, GRAY_200, GRAY_400},
+        css::{MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
+        tailwind::{BLUE_600, GRAY_200, GRAY_400},
     },
-    math::VectorSpace,
     prelude::*,
     render::render_resource::Source,
     sprite::{Anchor, MaterialMesh2dBundle},
@@ -17,9 +28,9 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
+    events::{Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{On, Pickable, PointerButton, PointerInteraction},
+    prelude::{Pickable, PointerButton},
     PickableBundle,
 };
 use color::ColorNode;
@@ -30,23 +41,19 @@ use petgraph::Direction;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use wgpu::TextureFormat;
 
-use crate::{
-    asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    },
-    camera::MainCamera,
-    graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, GraphWasUpdated, RequestProcessPipeline},
-    line_renderer::{Line, LineMaterial},
-    setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue},
-    ui::UIContext,
-    ApplicationState,
-};
-
 pub struct NodePlugin;
 
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(
+            PreUpdate,
+            ((
+                (handle_undoable, handle_undo, handle_redo),
+                (add_edge, remove_edge),
+            )
+                .chain())
+            .run_if(in_state(ApplicationState::MainLoop)),
+        );
         app.add_systems(
             Update,
             (
@@ -54,18 +61,30 @@ impl Plugin for NodePlugin {
                     handle_node_drag,
                     handle_node_focus,
                     handle_port_hover,
-                    handle_port_connection,
+                    handle_port_selection,
                     update_edge_lines,
+                    handle_input,
                 ),
                 (update_node_border),
             )
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
+        app.insert_resource(HistoricalActions {
+            undo_stack: vec![],
+            redo_stack: vec![],
+        });
         app.observe(spawn_requested_node);
         app.observe(node_z_to_top);
         app.observe(delete_node);
-        app.observe(add_edge);
+        app.observe(detatch_input);
+        app.observe(detatch_output);
+
+        app.add_event::<UndoableEvent>();
+        app.add_event::<RequestUndo>();
+        app.add_event::<RequestRedo>();
+        app.add_event::<AddEdgeEvent>();
+        app.add_event::<RemoveEdgeEvent>();
     }
 }
 
@@ -260,6 +279,241 @@ fn handle_node_focus(
     }
 }
 
+#[derive(Event, Clone)]
+pub enum UndoableEvent {
+    AddEdge(AddEdgeEvent),
+    RemoveEdge(RemoveEdgeEvent),
+}
+
+#[derive(Event, Clone)]
+pub struct AddEdgeEvent {
+    pub start_port: Entity,
+    pub end_port: Entity,
+}
+
+#[derive(Event, Clone)]
+pub struct RemoveEdgeEvent {
+    pub start_port: Entity,
+    pub end_port: Entity,
+}
+
+#[derive(Resource)]
+pub struct HistoricalActions {
+    pub undo_stack: Vec<UndoableEvent>,
+    pub redo_stack: Vec<UndoableEvent>,
+}
+
+fn handle_undoable(
+    mut events: EventReader<UndoableEvent>,
+    mut add_edge_events: EventWriter<AddEdgeEvent>,
+    mut remove_edge_events: EventWriter<RemoveEdgeEvent>,
+    mut history: ResMut<HistoricalActions>,
+) {
+    for event in events.read() {
+        println!("STACK IT UP");
+        history.undo_stack.push(event.clone());
+
+        match &event {
+            UndoableEvent::AddEdge(e) => {
+                add_edge_events.send(e.clone());
+            }
+            UndoableEvent::RemoveEdge(e) => {
+                remove_edge_events.send(e.clone());
+            }
+        }
+    }
+}
+
+fn handle_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut undo_writer: EventWriter<RequestUndo>,
+    mut redo_writer: EventWriter<RequestRedo>,
+) {
+    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight)
+    {
+        if keyboard_input.just_pressed(KeyCode::KeyZ) {
+            undo_writer.send(RequestUndo);
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyY) {
+            redo_writer.send(RequestRedo);
+        }
+    }
+}
+
+#[derive(Event)]
+pub struct RequestUndo;
+
+#[derive(Event)]
+pub struct RequestRedo;
+
+fn handle_undo(
+    mut commands: Commands,
+    mut undo_events: EventReader<RequestUndo>,
+    mut add_edge_events: EventWriter<AddEdgeEvent>,
+    mut remove_edge_events: EventWriter<RemoveEdgeEvent>,
+    mut history: ResMut<HistoricalActions>,
+) {
+    for _ in undo_events.read() {
+        if let Some(event) = history.undo_stack.pop() {
+            match event {
+                UndoableEvent::AddEdge(e) => {
+                    // To undo an add, we need to remove
+                    let remove_event = RemoveEdgeEvent {
+                        start_port: e.start_port,
+                        end_port: e.end_port,
+                    };
+                    remove_edge_events.send(remove_event.clone());
+                    history.redo_stack.push(UndoableEvent::AddEdge(e));
+                }
+                UndoableEvent::RemoveEdge(e) => {
+                    // To undo a remove, we need to add again
+                    let add_event = AddEdgeEvent {
+                        start_port: e.start_port,
+                        end_port: e.end_port,
+                    };
+                    add_edge_events.send(add_event.clone());
+                    history.redo_stack.push(UndoableEvent::RemoveEdge(e));
+                }
+            }
+        }
+    }
+}
+
+fn handle_redo(
+    mut commands: Commands,
+    mut redo_events: EventReader<RequestRedo>,
+    mut add_edge_events: EventWriter<AddEdgeEvent>,
+    mut remove_edge_events: EventWriter<RemoveEdgeEvent>,
+    mut history: ResMut<HistoricalActions>,
+) {
+    for _ in redo_events.read() {
+        if let Some(event) = history.redo_stack.pop() {
+            match event {
+                UndoableEvent::AddEdge(ref e) => {
+                    // Redo an add
+                    add_edge_events.send(e.clone());
+                    history.undo_stack.push(event.clone());
+                }
+                UndoableEvent::RemoveEdge(ref e) => {
+                    // Redo a remove
+                    remove_edge_events.send(e.clone());
+                    history.undo_stack.push(event.clone());
+                }
+            }
+        }
+    }
+}
+
+fn add_edge(
+    mut commands: Commands,
+    mut add_edge_events: EventReader<AddEdgeEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
+    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+
+    for event in add_edge_events.read() {
+        if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
+            q_output_ports.get(event.start_port),
+            q_input_ports.get(event.end_port),
+        ) {
+            let edge = Edge {
+                from_field: start_port.field_id,
+                to_field: end_port.field_id,
+            };
+
+            match pipeline
+                .graph
+                .add_edge_checked(start_port.node_index, end_port.node_index, edge)
+            {
+                Ok(()) => {
+                    let start = start_transform.translation().truncate();
+                    let end = end_transform.translation().truncate();
+                    let curve_points = generate_curved_line(start, end, 50);
+
+                    // Get the colors from the graph nodes
+                    let start_node = pipeline.graph.node_weight(start_port.node_index).unwrap();
+                    let end_node = pipeline.graph.node_weight(end_port.node_index).unwrap();
+                    let start_color =
+                        port_color(&start_node.get_output(start_port.field_id).unwrap());
+                    let end_color = port_color(&end_node.get_input(end_port.field_id).unwrap());
+
+                    let curve_colors =
+                        generate_color_gradient(start_color, end_color, curve_points.len());
+
+                    commands.spawn((
+                        Line {
+                            points: curve_points,
+                            colors: curve_colors,
+                            thickness: 2.0,
+                        },
+                        EdgeLine {
+                            start_port: event.start_port,
+                            end_port: event.end_port,
+                        },
+                        Transform::from_xyz(0., 0., -999.),
+                        Pickable::IGNORE,
+                    ));
+
+                    // Trigger pipeline process
+                    commands.trigger(RequestProcessPipeline);
+                }
+                Err(e) => {
+                    println!("Error adding edge: {}", e);
+                }
+            }
+        } else {
+            println!("Error: Could not find one or both of the ports");
+        }
+    }
+}
+
+fn remove_edge(
+    mut commands: Commands,
+    mut remove_edge_events: EventReader<RemoveEdgeEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_input_ports: Query<&InputPort>,
+    q_output_ports: Query<&OutputPort>,
+    q_edges: Query<(Entity, &EdgeLine)>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+
+    for event in remove_edge_events.read() {
+        println!("REMOVE?");
+        if let (Ok(start_port), Ok(end_port)) = (
+            q_output_ports.get(event.start_port),
+            q_input_ports.get(event.end_port),
+        ) {
+            // Find the edge in the graph
+            if let Some(edge_index) = pipeline
+                .graph
+                .find_edge(start_port.node_index, end_port.node_index)
+            {
+                // Remove the edge from the graph
+                pipeline.graph.remove_edge(edge_index);
+
+                // Find and remove the corresponding EdgeLine entity
+                for (entity, edge_line) in q_edges.iter() {
+                    if edge_line.start_port == event.start_port
+                        && edge_line.end_port == event.end_port
+                    {
+                        commands.entity(entity).despawn();
+                        break;
+                    }
+                }
+
+                // Trigger pipeline process
+                commands.trigger(RequestProcessPipeline);
+            } else {
+                println!("Error: Could not find edge to remove in the graph");
+            }
+        } else {
+            println!("Error: Could not find one or both of the ports");
+        }
+    }
+}
+
 fn spawn_requested_node(
     trigger: Trigger<RequestSpawnNode>,
     mut commands: Commands,
@@ -391,7 +645,7 @@ fn spawn_requested_node(
                             (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
                             (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
                                 + -(i as f32 * PORT_RADIUS * 3.),
-                            1.,
+                            0.5,
                         ),
                         mesh: meshes.port_mesh.clone(),
                         material: port_material,
@@ -401,7 +655,11 @@ fn spawn_requested_node(
                         node_index: spawned_node_index,
                         field_id: *input_id,
                     })
-                    .insert(PickableBundle::default());
+                    .insert(PickableBundle::default())
+                    .insert(UIContext::InputPort(InputPortContext {
+                        node: spawned_node_index,
+                        port: *input_id,
+                    }));
             }
 
             for (i, output_id) in node
@@ -427,7 +685,7 @@ fn spawn_requested_node(
                             (NODE_TEXTURE_DISPLAY_DIMENSION / 2.),
                             (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin
                                 + -(i as f32 * PORT_RADIUS * 3.),
-                            1.,
+                            0.5,
                         ),
                         mesh: meshes.port_mesh.clone(),
                         material: port_material,
@@ -437,6 +695,10 @@ fn spawn_requested_node(
                         node_index: spawned_node_index,
                         field_id: *output_id,
                     })
+                    .insert(UIContext::OutputPort(OutputPortContext {
+                        node: spawned_node_index,
+                        port: *output_id,
+                    }))
                     .insert(PickableBundle::default());
             }
         });
@@ -458,68 +720,106 @@ pub struct OutputPort {
     pub field_id: OutputId,
 }
 
-#[derive(Event)]
-pub struct AddEdge {
-    pub start_port: Entity,
-    pub end_port: Entity,
+#[derive(Event, Clone)]
+pub struct RequestDetatchInput {
+    pub node: NodeIndex,
+    pub port: InputId,
 }
 
-fn add_edge(
-    trigger: Trigger<AddEdge>,
+fn detatch_input(
+    trigger: Trigger<RequestDetatchInput>,
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
-    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+    q_edge_lines: Query<(Entity, &EdgeLine)>,
+    q_input_ports: Query<(Entity, &InputPort)>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
-        q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port),
-    ) {
-        let edge = Edge {
-            from_field: start_port.field_id,
-            to_field: end_port.field_id,
-        };
+    let target_node = trigger.event().node;
+    let target_port = trigger.event().port;
 
-        match pipeline
+    // Find the entity of the target input port
+    if let Some((target_port_entity, _)) = q_input_ports
+        .iter()
+        .find(|(_, port)| port.node_index == target_node && port.field_id == target_port)
+    {
+        // Find and remove the single edge, if it exists
+        if let Some(edge) = pipeline
             .graph
-            .add_edge_checked(start_port.node_index, end_port.node_index, edge)
+            .edges_directed(target_node, Direction::Incoming)
+            .find(|edge| edge.weight().to_field == target_port)
         {
-            Ok(()) => {
-                let start = start_transform.translation().truncate();
-                let end = end_transform.translation().truncate();
-                let curve_points = generate_curved_line(start, end, 50);
+            let edge_id = edge.id();
+            pipeline.graph.remove_edge(edge_id);
 
-                // Get the colors from the graph nodes
-                let start_node = pipeline.graph.node_weight(start_port.node_index).unwrap();
-                let end_node = pipeline.graph.node_weight(end_port.node_index).unwrap();
-                let start_color = port_color(&start_node.get_output(start_port.field_id).unwrap());
-                let end_color = port_color(&end_node.get_input(end_port.field_id).unwrap());
-
-                let curve_colors =
-                    generate_color_gradient(start_color, end_color, curve_points.len());
-
-                commands.spawn((
-                    Line {
-                        points: curve_points,
-                        colors: curve_colors,
-                        thickness: 2.0,
-                    },
-                    EdgeLine {
-                        start_port: trigger.event().start_port,
-                        end_port: trigger.event().end_port,
-                    },
-                ));
-
-                // Trigger pipeline process
-                commands.trigger(RequestProcessPipeline);
+            // Remove the corresponding edge line
+            for (entity, edge_line) in q_edge_lines.iter() {
+                if edge_line.end_port == target_port_entity {
+                    commands.entity(entity).despawn();
+                    break; // We can break here as there's only one edge
+                }
             }
-            Err(e) => {
-                println!("Error adding edge: {}", e);
-            }
+
+            // Trigger pipeline process to update the graph
+            commands.trigger(RequestProcessPipeline);
         }
     } else {
-        println!("Error: Could not find one or both of the ports");
+        println!("Error: Could not find the target input port");
+    }
+}
+
+#[derive(Event, Clone)]
+pub struct RequestDetatchOutput {
+    pub node: NodeIndex,
+    pub port: OutputId,
+}
+
+fn detatch_output(
+    trigger: Trigger<RequestDetatchOutput>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_edge_lines: Query<(Entity, &EdgeLine)>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    let target_node = trigger.event().node;
+    let target_port = trigger.event().port;
+
+    // Find the entity of the target output port
+    if let Some((target_port_entity, _)) = q_output_ports
+        .iter()
+        .find(|(_, port)| port.node_index == target_node && port.field_id == target_port)
+    {
+        // Collect all edge IDs to remove
+        let edges_to_remove: Vec<_> = pipeline
+            .graph
+            .edges_directed(target_node, Direction::Outgoing)
+            .filter(|edge| edge.weight().from_field == target_port)
+            .map(|edge| edge.id())
+            .collect();
+
+        // Remove the edges from the graph
+        for &edge_id in &edges_to_remove {
+            pipeline.graph.remove_edge(edge_id);
+        }
+
+        // Remove the corresponding edge lines
+        let mut edge_lines_to_remove = Vec::new();
+        for (entity, edge_line) in q_edge_lines.iter() {
+            if edge_line.start_port == target_port_entity {
+                edge_lines_to_remove.push(entity);
+            }
+        }
+
+        for entity in edge_lines_to_remove {
+            commands.entity(entity).despawn();
+        }
+
+        // Trigger pipeline process to update the graph
+        if !edges_to_remove.is_empty() {
+            commands.trigger(RequestProcessPipeline);
+        }
+    } else {
+        println!("Error: Could not find the target output port");
     }
 }
 
@@ -555,7 +855,7 @@ pub struct SelectingPort {
     pub direction: Direction,
 }
 
-pub fn handle_port_connection(
+pub fn handle_port_selection(
     mut commands: Commands,
     mut line_query: Query<(Entity, &mut Line)>,
     input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
@@ -566,6 +866,7 @@ pub fn handle_port_connection(
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
     q_pipeline: Query<&DisjointPipelineGraph>,
+    mut undoable_events: EventWriter<UndoableEvent>,
 ) {
     let (camera, camera_transform) = camera_query.single();
     let window = window.single();
@@ -603,11 +904,15 @@ pub fn handle_port_connection(
             };
 
         let line_entity = commands
-            .spawn(Line {
-                points: vec![port_position, port_position],
-                colors: vec![port_color(&field), port_color(&field)],
-                thickness: 2.0,
-            })
+            .spawn((
+                Line {
+                    points: vec![port_position, port_position],
+                    colors: vec![port_color(&field), port_color(&field)],
+                    thickness: 2.0,
+                },
+                Transform::from_xyz(0., 0., -999.),
+                Pickable::IGNORE,
+            ))
             .id();
 
         *selecting_port = Some(SelectingPort {
@@ -683,18 +988,18 @@ pub fn handle_port_connection(
             match direction {
                 Direction::Incoming => {
                     if let Some(input_port) = maybe_hovered_input {
-                        commands.trigger(AddEdge {
+                        undoable_events.send(UndoableEvent::AddEdge(AddEdgeEvent {
                             start_port,
                             end_port: input_port,
-                        });
+                        }));
                     }
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
-                        commands.trigger(AddEdge {
+                        undoable_events.send(UndoableEvent::AddEdge(AddEdgeEvent {
                             start_port: output_port,
                             end_port: start_port,
-                        });
+                        }));
                     }
                 }
             }

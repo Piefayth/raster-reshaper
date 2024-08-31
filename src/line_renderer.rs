@@ -1,7 +1,7 @@
 use bevy::{
     prelude::*,
     render::{
-        mesh::{MeshVertexAttribute, MeshVertexBufferLayout, MeshVertexBufferLayoutRef},
+        mesh::{MeshVertexAttribute, MeshVertexBufferLayout, MeshVertexBufferLayoutRef, VertexAttributeValues},
         render_asset::RenderAssetUsages,
         render_resource::{
             AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
@@ -9,7 +9,7 @@ use bevy::{
         },
         Extract, RenderApp, RenderSet,
     },
-    sprite::{Material2d, Material2dKey, Material2dPlugin, MaterialMesh2dBundle},
+    sprite::{Material2d, Material2dKey, Material2dPlugin, MaterialMesh2dBundle, Mesh2d, Mesh2dHandle}, utils::HashMap,
 };
 use wgpu::PrimitiveTopology;
 
@@ -19,7 +19,7 @@ impl Plugin for LineRenderingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<LineMaterial>::default())
             .register_type::<Line>()
-            .add_systems(Update, update_line_meshes);
+            .add_systems(Update, (update_line_meshes));
 
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(ExtractSchedule, extract_lines);
@@ -76,19 +76,78 @@ fn update_line_meshes(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<LineMaterial>>,
-    query: Query<(Entity, &Line), Changed<Line>>,
+    mut material_cache: Local<HashMap<u32, Handle<LineMaterial>>>,
+    query: Query<(Entity, &Line, Option<&Mesh2dHandle>), Changed<Line>>,
 ) {
-    for (entity, line) in query.iter() {
+    for (entity, line, maybe_mesh_handle) in query.iter() {
         if line.points.len() < 2 || line.colors.len() != line.points.len() {
             continue; // Not enough points or mismatched colors
         }
 
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleStrip, RenderAssetUsages::RENDER_WORLD);
+        let attribute_size = line.points.len() * 2;
+        let rounded_key = (line.thickness * 1000.0).round() as u32; // thicknesses less than .00001 apart will use the same material
 
-        let mut positions = Vec::new();
-        let mut normals = Vec::new();
-        let mut miters = Vec::new();
-        let mut colors = Vec::new();
+        let mesh = match maybe_mesh_handle {
+            Some(mesh_handle) => {
+                meshes.get_mut(mesh_handle.id()).unwrap()
+            },
+            None => {
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleStrip, RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD);
+
+                mesh.insert_attribute(ATTRIBUTE_POSITION, Vec::<[f32; 3]>::with_capacity(attribute_size));
+                mesh.insert_attribute(ATTRIBUTE_NORMAL, Vec::<[f32; 2]>::with_capacity(attribute_size));
+                mesh.insert_attribute(ATTRIBUTE_MITER, Vec::<f32>::with_capacity(attribute_size));
+                mesh.insert_attribute(ATTRIBUTE_COLOR, Vec::<[f32; 4]>::with_capacity(attribute_size));
+
+                let mesh_handle = Mesh2dHandle(meshes.add(mesh));
+                let id = mesh_handle.id();
+
+                let material_handle = if let Some(cached) = material_cache.get(&rounded_key) {
+                    cached
+                } else {
+                    let handle = materials.add(LineMaterial { thickness: line.thickness });
+                    material_cache.insert(rounded_key, handle.clone());
+                    &handle.clone()
+                };
+
+                commands.entity(entity).insert(MaterialMesh2dBundle {
+                    mesh: mesh_handle,
+                    material: material_handle.clone(),
+                    ..default()
+                });
+
+                meshes.get_mut(id).unwrap()
+            },
+        };
+
+
+        let mut resize = false;
+        mesh.attributes_mut().for_each(|(id, values)| {
+            match id {
+                id if id == ATTRIBUTE_POSITION.id => {
+                    if values.len() != attribute_size {
+                        resize = true;  // we can check in any of these, they will all change at the same time
+                        *values = VertexAttributeValues::Float32x3(Vec::<[f32; 3]>::with_capacity(attribute_size));
+                    }
+                },
+                id if id == ATTRIBUTE_NORMAL.id => {
+                    if values.len() != attribute_size {
+                        *values = VertexAttributeValues::Float32x2(Vec::<[f32; 2]>::with_capacity(attribute_size));
+                    }
+                },
+                id if id == ATTRIBUTE_MITER.id => {
+                    if values.len() != attribute_size {
+                        *values = VertexAttributeValues::Float32(Vec::<f32>::with_capacity(attribute_size));
+                    }
+                },
+                id if id == ATTRIBUTE_COLOR.id => {
+                    if values.len() != attribute_size {
+                        *values = VertexAttributeValues::Float32x4(Vec::<[f32; 4]>::with_capacity(attribute_size));
+                    }
+                },
+                _ => {}
+            }
+        });
 
         for i in 0..line.points.len() {
             let (normal, miter) = if i == 0 {
@@ -106,27 +165,74 @@ fn update_line_meshes(
                 (miter, length)
             };
 
-            positions.push([line.points[i].x, line.points[i].y, 0.0]);
-            positions.push([line.points[i].x, line.points[i].y, 0.0]);
-            normals.push([-normal.x, -normal.y]);
-            normals.push([normal.x, normal.y]);
-            miters.push(miter);
-            miters.push(miter);
-            colors.push(line.colors[i].to_f32_array());
-            colors.push(line.colors[i].to_f32_array());
+            mesh.attributes_mut().for_each(|(id, values)| {
+                match id {
+                    id if id == ATTRIBUTE_POSITION.id => {
+                        match values {
+                            VertexAttributeValues::Float32x3(ref mut v) => {
+                                if resize {
+                                    v.push([line.points[i].x, line.points[i].y, 0.0]);
+                                    v.push([line.points[i].x, line.points[i].y, 0.0]);
+                                } else {
+                                    v[i * 2] = [line.points[i].x, line.points[i].y, 0.0];
+                                    v[(i * 2) + 1] = [line.points[i].x, line.points[i].y, 0.0];
+                                }
+
+                            },
+                            _ => panic!("mistake")
+                        }
+
+                    },
+                    id if id == ATTRIBUTE_NORMAL.id => {
+                        match values {
+                            VertexAttributeValues::Float32x2(ref mut v) => {
+                                if resize {
+                                    v.push([-normal.x, -normal.y]);
+                                    v.push([normal.x, normal.y]);
+                                } else {
+                                    v[i * 2] = [-normal.x, -normal.y];
+                                    v[(i * 2) + 1] = [normal.x, normal.y];
+                                }
+                            },
+                            _ => panic!("mistake")
+                        }
+                    },
+                    id if id == ATTRIBUTE_MITER.id => {
+                        match values {
+                            VertexAttributeValues::Float32(ref mut v) => {
+                                if resize {
+                                    v.push(miter);
+                                    v.push(miter);
+                                } else {
+                                    v[i * 2] = miter;
+                                    v[(i * 2) + 1] = miter;
+                                }
+                            },
+                            _ => panic!("mistake")
+                        }
+
+                    },
+                    id if id == ATTRIBUTE_COLOR.id => {
+                        match values {
+                            VertexAttributeValues::Float32x4(ref mut v) => {
+                                if resize {
+                                    v.push(line.colors[i].to_f32_array());
+                                    v.push(line.colors[i].to_f32_array());
+                                } else {
+                                    v[i * 2] = line.colors[i].to_f32_array();
+                                    v[(i * 2) + 1] = line.colors[i].to_f32_array();
+                                }
+
+                            },
+                            _ => panic!("mistake")
+                        }
+                    },
+                    _ => {}
+                }
+            });
         }
 
-        mesh.insert_attribute(ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(ATTRIBUTE_NORMAL, normals);
-        mesh.insert_attribute(ATTRIBUTE_MITER, miters);
-        mesh.insert_attribute(ATTRIBUTE_COLOR, colors);
 
-        commands.entity(entity).try_insert(MaterialMesh2dBundle {
-            mesh: bevy::sprite::Mesh2dHandle(meshes.add(mesh)),
-            material: materials.add(LineMaterial { thickness: line.thickness }),
-            transform: Transform::from_xyz(0.0, 0.0, -999.0),
-            ..default()
-        });
     }
 }
 
