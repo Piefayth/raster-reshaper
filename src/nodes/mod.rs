@@ -65,7 +65,7 @@ impl Plugin for NodePlugin {
                     handle_port_hover,
                     handle_port_selection,
                     update_edge_lines,
-                    handle_input,
+                    handle_undo_redo_input,
                     handle_node_selection,
                 ),
                 (update_node_border),
@@ -303,12 +303,8 @@ fn handle_node_selection(
                             commands.entity(other_entity).remove::<Selected>();
                         }
                     }
-
-                    if control_pressed {
-                        commands.entity(node_entity).insert(Selected);
-                    } else {
-                        commands.entity(node_entity).insert(Selected);
-                    }
+                    commands.entity(node_entity).insert(Selected);
+                    commands.trigger(NodeZIndexToTop { node: node_entity});
                 }
             }
         }
@@ -399,9 +395,11 @@ fn handle_node_selection(
                                 if is_selected.is_some() {
                                     commands.entity(entity).remove::<Selected>();
                                 } else {
+                                    commands.trigger(NodeZIndexToTop { node: entity});
                                     commands.entity(entity).insert(Selected);
                                 }
                             } else {
+                                commands.trigger(NodeZIndexToTop { node: entity});
                                 commands.entity(entity).insert(Selected);
                             }
                         }
@@ -446,6 +444,9 @@ fn update_node_border(
     }
 }
 
+// Anything that can be undone must be wrapped and sent in an Undoable event
+// handle_undoable acts as an event bus, pushing new actionsonto the undo stack and dispatching the underlying events
+// the unwrapped events are not intended to be dispatched individually by systems
 #[derive(Event, Clone)]
 pub enum UndoableEvent {
     AddEdge(AddEdgeEvent),
@@ -490,7 +491,7 @@ fn handle_undoable(
     }
 }
 
-fn handle_input(
+fn handle_undo_redo_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut undo_writer: EventWriter<RequestUndo>,
     mut redo_writer: EventWriter<RequestRedo>,

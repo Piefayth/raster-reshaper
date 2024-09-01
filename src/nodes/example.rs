@@ -336,7 +336,7 @@ declare_node!(
             // TODO: Update any internal state that might require an update due to an input change.
             // Texture extents, texture format...
             // Field is guaranteed by the macro to be an appropriate type for the input id
-            //println!("Custom set_input called with value: {:?}", value);
+            println!("Custom set_input called with value: {:?}", value);
             Ok(())
         }
     }
