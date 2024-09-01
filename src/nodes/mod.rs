@@ -256,7 +256,7 @@ fn handle_node_selection(
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_events: EventReader<Pointer<Drag>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
-    mut click_events: EventReader<Pointer<Click>>,
+    mut down_events: EventReader<Pointer<Down>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     node_query: Query<
         (Entity, &GlobalTransform, &Mesh2dHandle, Option<&Selected>),
@@ -274,7 +274,7 @@ fn handle_node_selection(
     let control_pressed = keyboard_input.pressed(KeyCode::ControlLeft)
         || keyboard_input.pressed(KeyCode::ControlRight);
 
-    for event in click_events.read() {
+    for event in down_events.read() {
         // clear selection when clicking the canvas wihthout a modifier
         if !shift_pressed
             && !control_pressed

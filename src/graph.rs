@@ -1,14 +1,25 @@
 use std::time::Instant;
 
 use crate::{
-    asset::NodeDisplayMaterial, nodes::{InputId, Node, NodeDisplay, NodeTrait, OutputId}, setup::{CustomGpuDevice, CustomGpuQueue}, ApplicationState
+    asset::NodeDisplayMaterial,
+    nodes::{fields::can_convert_field, InputId, Node, NodeDisplay, NodeTrait, OutputId},
+    setup::{CustomGpuDevice, CustomGpuQueue},
+    ApplicationState,
 };
 use bevy::{
-    app::App, asset::{Assets, Handle}, color::palettes::css::RED, prelude::*, tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task}, utils::{HashMap, HashSet}
+    app::App,
+    asset::{Assets, Handle},
+    color::palettes::css::RED,
+    prelude::*,
+    tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task},
+    utils::{HashMap, HashSet},
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
-    graph::{DiGraph, NodeIndex}, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
+    graph::{DiGraph, NodeIndex},
+    prelude::StableDiGraph,
+    visit::{EdgeRef, IntoNodeReferences},
+    Direction,
 };
 
 pub struct GraphPlugin;
@@ -200,11 +211,8 @@ fn process_pipeline(
                     );
                 }
 
-                let subtask = process_node(
-                    node_with_resolved_dependencies,
-                )
-                .boxed();
-                
+                let subtask = process_node(node_with_resolved_dependencies).boxed();
+
                 subtasks.push(subtask);
             }
         }
@@ -220,9 +228,7 @@ fn process_pipeline(
     commands.spawn(PipelineProcessTask(task));
 }
 
-async fn process_node(
-    mut p_node: ProcessNode,
-) -> ProcessNode {
+async fn process_node(mut p_node: ProcessNode) -> ProcessNode {
     let start = Instant::now();
 
     p_node.node.process().await;
@@ -291,21 +297,22 @@ impl AddEdgeChecked for StableDiGraph<Node, Edge> {
             .node_weight(to)
             .ok_or_else(|| format!("Node at index {:?} not found", to))?;
 
-        if from_node.get_output(edge.from_field).is_none() {
-            return Err(format!(
+        let output = from_node.get_output(edge.from_field).ok_or_else(|| {
+            format!(
                 "Output field {:?} not found in source node",
                 edge.from_field
-            ));
-        }
+            )
+        })?;
+        let input = to_node
+            .get_input(edge.to_field)
+            .ok_or_else(|| format!("Input field {:?} not found in target node", edge.to_field))?;
 
-        if to_node.get_input(edge.to_field).is_none() {
+        if !can_convert_field(&output, &input) {
             return Err(format!(
-                "Input field {:?} not found in target node",
-                edge.to_field
+                "Cannot convert output to input",
             ));
         }
 
-        // Check if the 'to' node already has an edge to the specified input field
         let input_already_used = self
             .edges_directed(to, Direction::Incoming)
             .any(|e| e.weight().to_field == edge.to_field);

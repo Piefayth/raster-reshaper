@@ -117,3 +117,16 @@ impl TryFrom<Field> for LinearRgba {
         }
     }
 }
+
+
+pub fn can_convert_field(from: &Field, to: &Field) -> bool {
+    match to {
+        Field::U32(_) => u32::try_from(from.clone()).is_ok(),
+        Field::F32(_) => f32::try_from(from.clone()).is_ok(),
+        Field::Vec4(_) => Vec4::try_from(from.clone()).is_ok(),
+        Field::LinearRgba(_) => LinearRgba::try_from(from.clone()).is_ok(),
+        Field::Extent3d(_) => Extent3d::try_from(from.clone()).is_ok(),
+        Field::TextureFormat(_) => TextureFormat::try_from(from.clone()).is_ok(),
+        Field::Image(_) => Option::<Image>::try_from(from.clone()).is_ok(),
+    }
+}
