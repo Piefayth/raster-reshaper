@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bevy::{
     color::palettes::css::{BLUE, GREEN, RED, YELLOW}, math::VectorSpace, prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
 };
-use bevy_mod_picking::PickableBundle;
+use bevy_mod_picking::{prelude::PickSelection, PickableBundle};
 use petgraph::{graph::DiGraph, prelude::StableDiGraph};
 use wgpu::{Features, Limits};
 

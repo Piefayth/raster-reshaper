@@ -93,7 +93,7 @@ fn update_line_meshes(
             },
             None => {
                 let mut mesh = Mesh::new(PrimitiveTopology::TriangleStrip, RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD);
-
+                
                 mesh.insert_attribute(ATTRIBUTE_POSITION, Vec::<[f32; 3]>::with_capacity(attribute_size));
                 mesh.insert_attribute(ATTRIBUTE_NORMAL, Vec::<[f32; 2]>::with_capacity(attribute_size));
                 mesh.insert_attribute(ATTRIBUTE_MITER, Vec::<f32>::with_capacity(attribute_size));

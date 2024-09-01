@@ -12,7 +12,10 @@ use crate::{
     camera::MainCamera,
     graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
     line_renderer::Line,
-    setup::{generate_color_gradient, generate_curved_line, CustomGpuDevice, CustomGpuQueue},
+    setup::{
+        generate_color_gradient, generate_curved_line, ApplicationCanvas, CustomGpuDevice,
+        CustomGpuQueue,
+    },
     ui::{InputPortContext, OutputPortContext, UIContext},
     ApplicationState,
 };
@@ -23,12 +26,12 @@ use bevy::{
     },
     prelude::*,
     render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle},
+    sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle},
     ui::Direction as UIDirection,
     window::PrimaryWindow,
 };
 use bevy_mod_picking::{
-    events::{Down, Drag, DragEnd, DragStart, Pointer},
+    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
     prelude::{Pickable, PointerButton},
     PickableBundle,
@@ -59,11 +62,11 @@ impl Plugin for NodePlugin {
             (
                 (
                     handle_node_drag,
-                    handle_node_focus,
                     handle_port_hover,
                     handle_port_selection,
                     update_edge_lines,
                     handle_input,
+                    handle_node_selection,
                 ),
                 (update_node_border),
             )
@@ -147,6 +150,12 @@ fn delete_node(
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
 ) {
+    // so this node might be part of a selection
+    // if it is, we delete the entire selection
+    // but this action also needs to be undoable
+    // so we need to somehow preserve the deleted entities
+    // wow really wish we had serialization rn huh
+
     let mut pipeline = q_pipeline.single_mut();
     let node = q_nodes.get(trigger.event().node).unwrap();
 
@@ -203,7 +212,7 @@ fn node_z_to_top(
 }
 
 fn handle_node_drag(
-    mut query: Query<&mut Transform, With<NodeDisplay>>,
+    mut node_query: Query<(&mut Transform, Option<&Selected>), With<NodeDisplay>>,
     camera_query: Query<&OrthographicProjection>,
     mut drag_events: EventReader<Pointer<Drag>>,
 ) {
@@ -211,16 +220,203 @@ fn handle_node_drag(
     let camera_scale = projection.scale;
 
     for event in drag_events.read() {
-        // TODO: Should we take only the last event so you can't drag two nodes at once?
-        if let Ok(mut transform) = query.get_mut(event.target) {
+        if let Ok((mut transform, selected)) = node_query.get_mut(event.target) {
             let scaled_delta = Vec3::new(
                 event.delta.x * camera_scale,
                 -event.delta.y * camera_scale,
                 0.0,
             );
 
-            transform.translation += scaled_delta;
+            // If the dragged node is selected, move all selected nodes
+            if selected.is_some() {
+                for (mut other_transform, other_selected) in node_query.iter_mut() {
+                    if other_selected.is_some() {
+                        other_transform.translation += scaled_delta;
+                    }
+                }
+            } else {
+                // If the dragged node is not selected, move only this node
+                transform.translation += scaled_delta;
+            }
         }
+    }
+}
+
+#[derive(Component)]
+struct SelectionBox {
+    start: Vec2,
+    end: Vec2,
+}
+
+#[derive(Component)]
+struct Selected;
+
+fn handle_node_selection(
+    mut commands: Commands,
+    mut drag_start_events: EventReader<Pointer<DragStart>>,
+    mut drag_events: EventReader<Pointer<Drag>>,
+    mut drag_end_events: EventReader<Pointer<DragEnd>>,
+    mut click_events: EventReader<Pointer<Click>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    node_query: Query<
+        (Entity, &GlobalTransform, &Mesh2dHandle, Option<&Selected>),
+        (With<NodeDisplay>, Without<SelectionBox>),
+    >,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut selection_box_query: Query<(Entity, &mut SelectionBox, &mut Transform, &mut Mesh2dHandle)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    canvas_query: Query<Entity, With<ApplicationCanvas>>,
+) {
+    let (camera, camera_transform) = camera_query.single();
+    let shift_pressed =
+        keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight);
+    let control_pressed = keyboard_input.pressed(KeyCode::ControlLeft)
+        || keyboard_input.pressed(KeyCode::ControlRight);
+
+    for event in click_events.read() {
+        // clear selection when clicking the canvas wihthout a modifier
+        if !shift_pressed
+            && !control_pressed
+            && event.button == PointerButton::Primary
+            && canvas_query.contains(event.target)
+        {
+            for (entity, _, _, _) in node_query.iter() {
+                commands.entity(entity).remove::<Selected>();
+            }
+        }
+
+        // handle clicks on nodes
+        if event.button == PointerButton::Primary && node_query.contains(event.target) {
+            let (node_entity, _, _, clicked_node_already_selected) =
+                node_query.get(event.target).unwrap();
+
+            match clicked_node_already_selected {
+                Some(_) => {
+                    if control_pressed {
+                        commands.entity(node_entity).remove::<Selected>();
+                    }
+                }
+                None => {
+                    if !shift_pressed && !control_pressed {
+                        for (other_entity, _, _, _) in node_query.iter() {
+                            commands.entity(other_entity).remove::<Selected>();
+                        }
+                    }
+
+                    if control_pressed {
+                        commands.entity(node_entity).insert(Selected);
+                    } else {
+                        commands.entity(node_entity).insert(Selected);
+                    }
+                }
+            }
+        }
+    }
+
+    // spawn the selection box on drag start
+    for event in drag_start_events.read() {
+        if event.button == PointerButton::Primary && canvas_query.contains(event.target) {
+            let start = event.hit.position.unwrap().truncate();
+            commands.spawn((
+                SelectionBox { start, end: start },
+                MaterialMesh2dBundle {
+                    mesh: Mesh2dHandle(meshes.add(Rectangle::new(0.0, 0.0))),
+                    material: materials.add(ColorMaterial {
+                        color: LinearRgba::new(0.5, 0.5, 0.5, 0.5).into(),
+                        ..default()
+                    }),
+                    transform: Transform::from_translation(Vec3::new(start.x, start.y, 100.0)),
+                    ..default()
+                },
+            ));
+        }
+    }
+
+    // update the selection box mesh on drag
+    for event in drag_events.read() {
+        if event.button == PointerButton::Primary {
+            if let Ok((_, mut selection_box, mut transform, mut mesh_handle)) =
+                selection_box_query.get_single_mut()
+            {
+                if let Some(world_position) =
+                    camera.viewport_to_world(camera_transform, event.pointer_location.position)
+                {
+                    selection_box.end = world_position.origin.truncate();
+
+                    let min_x = selection_box.start.x.min(selection_box.end.x);
+                    let max_x = selection_box.start.x.max(selection_box.end.x);
+                    let min_y = selection_box.start.y.min(selection_box.end.y);
+                    let max_y = selection_box.start.y.max(selection_box.end.y);
+
+                    let width = max_x - min_x;
+                    let height = max_y - min_y;
+
+                    let new_mesh = Mesh2dHandle(meshes.add(Rectangle::new(width, height)));
+                    *mesh_handle = new_mesh;
+
+                    transform.translation =
+                        Vec3::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, 100.0);
+                }
+            }
+        }
+    }
+
+    // handle the selection on drag end
+    let mut should_despawn_selection_box = Entity::PLACEHOLDER;
+    for event in drag_end_events.read() {
+        if event.button == PointerButton::Primary {
+            if let Ok((selection_box_entity, selection_box, _, _)) =
+                selection_box_query.get_single()
+            {
+                let min_x = selection_box.start.x.min(selection_box.end.x);
+                let max_x = selection_box.start.x.max(selection_box.end.x);
+                let min_y = selection_box.start.y.min(selection_box.end.y);
+                let max_y = selection_box.start.y.max(selection_box.end.y);
+
+                if !shift_pressed && !control_pressed {
+                    for (entity, _, _, _) in node_query.iter() {
+                        commands.entity(entity).remove::<Selected>();
+                    }
+                }
+
+                for (entity, transform, mesh_handle, is_selected) in node_query.iter() {
+                    if let Some(mesh) = meshes.get(mesh_handle.0.id()) {
+                        let node_aabb = mesh.compute_aabb().unwrap();
+                        let node_min = transform
+                            .transform_point(node_aabb.min().truncate().extend(0.0))
+                            .truncate();
+                        let node_max = transform
+                            .transform_point(node_aabb.max().truncate().extend(0.0))
+                            .truncate();
+
+                        if node_min.x <= max_x
+                            && node_max.x >= min_x
+                            && node_min.y <= max_y
+                            && node_max.y >= min_y
+                        {
+                            if control_pressed {
+                                if is_selected.is_some() {
+                                    commands.entity(entity).remove::<Selected>();
+                                } else {
+                                    commands.entity(entity).insert(Selected);
+                                }
+                            } else {
+                                commands.entity(entity).insert(Selected);
+                            }
+                        }
+                    }
+                }
+
+                should_despawn_selection_box = selection_box_entity;
+            }
+        }
+    }
+
+    if should_despawn_selection_box != Entity::PLACEHOLDER {
+        commands
+            .entity(should_despawn_selection_box)
+            .despawn_recursive();
     }
 }
 
@@ -229,7 +425,7 @@ fn update_node_border(
     query: Query<(
         &Handle<NodeDisplayMaterial>,
         &PickingInteraction,
-        Option<&FocusedNode>,
+        Option<&Selected>,
     )>,
 ) {
     for (material_handle, interaction, focused) in query.iter() {
@@ -247,35 +443,6 @@ fn update_node_border(
                 }
             }
         }
-    }
-}
-
-#[derive(Component)]
-pub struct FocusedNode;
-
-fn handle_node_focus(
-    mut commands: Commands,
-    mut click_events: EventReader<Pointer<Down>>,
-    focused_query: Query<Entity, With<FocusedNode>>,
-    q_node: Query<Entity, With<NodeDisplay>>,
-) {
-    let maybe_last_left_click = click_events
-        .read()
-        .filter(|click| {
-            (click.button == PointerButton::Primary || click.button == PointerButton::Secondary)
-                && q_node.contains(click.target)
-        })
-        .last();
-
-    if let Some(last_left_click) = maybe_last_left_click {
-        for entity in focused_query.iter() {
-            commands.entity(entity).remove::<FocusedNode>();
-        }
-
-        commands.entity(last_left_click.target).insert(FocusedNode);
-        commands.trigger(NodeZIndexToTop {
-            node: last_left_click.target,
-        });
     }
 }
 
@@ -310,7 +477,6 @@ fn handle_undoable(
     mut history: ResMut<HistoricalActions>,
 ) {
     for event in events.read() {
-        println!("STACK IT UP");
         history.undo_stack.push(event.clone());
 
         match &event {
@@ -480,7 +646,6 @@ fn remove_edge(
     let mut pipeline = q_pipeline.single_mut();
 
     for event in remove_edge_events.read() {
-        println!("REMOVE?");
         if let (Ok(start_port), Ok(end_port)) = (
             q_output_ports.get(event.start_port),
             q_input_ports.get(event.end_port),

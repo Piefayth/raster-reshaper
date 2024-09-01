@@ -7,7 +7,7 @@ edition = "2021"
 bevy = { version = "0.14.1" }
 bevy-inspector-egui = "0.25.2"
 bevy_asset_loader = "0.21.0"
-bevy_mod_picking = "0.20.1"
+bevy_mod_picking = { version = "0.20.1"}
 bytemuck = "1.16.3"
 crossbeam-channel = "0.5.13"
 futures = "0.3.30"
