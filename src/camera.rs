@@ -10,7 +10,7 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            OnEnter(ApplicationState::Setup),
+            Startup, // should be OnEnter::MainLoop, but bevy_cosmic_edit demands a camera
             setup_camera
         );
         

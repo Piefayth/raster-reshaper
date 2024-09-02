@@ -445,7 +445,7 @@ fn update_node_border(
 }
 
 // Anything that can be undone must be wrapped and sent in an Undoable event
-// handle_undoable acts as an event bus, pushing new actionsonto the undo stack and dispatching the underlying events
+// handle_undoable acts as an event bus, pushing new actions onto the undo stack and dispatching the underlying events
 // the unwrapped events are not intended to be dispatched individually by systems
 #[derive(Event, Clone)]
 pub enum UndoableEvent {
@@ -1097,12 +1097,32 @@ pub fn handle_port_selection(
     }) = *selecting_port
     {
         if let Some(cursor_position) = window.cursor_position() {
-            if let Some(cursor_world_position) =
-                camera.viewport_to_world(camera_transform, cursor_position)
+            if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position)
             {
                 let cursor_world_position = cursor_world_position.origin.truncate();
                 if let Ok((_, mut line)) = line_query.get_mut(line) {
-                    line.points = vec![start_position, cursor_world_position];
+                    let mut end_position = cursor_world_position;
+                    let snap_threshold = 20.0;
+
+                    // Check for snapping to input ports
+                    for (_, transform, _, _) in input_port_query.iter() {
+                        let port_position = transform.translation().truncate();
+                        if port_position.distance(cursor_world_position) < snap_threshold {
+                            end_position = port_position;
+                            break;
+                        }
+                    }
+
+                    // Check for snapping to output ports
+                    for (_, transform, _, _) in output_port_query.iter() {
+                        let port_position = transform.translation().truncate();
+                        if port_position.distance(cursor_world_position) < snap_threshold {
+                            end_position = port_position;
+                            break;
+                        }
+                    }
+
+                    line.points = vec![start_position, end_position];
                 }
             }
         }
