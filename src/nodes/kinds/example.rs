@@ -23,14 +23,7 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::setup::{CustomGpuDevice, CustomGpuQueue};
-
-use super::{
-    fields::FieldMeta,
-    macros::macros::declare_node,
-    shared::{Vertex, U32_SIZE},
-    Field, InputId,
-};
+use crate::{nodes::{fields::{Field, FieldMeta}, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, InputId}, setup::{CustomGpuDevice, CustomGpuQueue}};
 
 declare_node!(
     name: ExampleNode,

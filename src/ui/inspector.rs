@@ -7,7 +7,10 @@ use bevy::{
     utils::HashSet,
 };
 use bevy_cosmic_edit::*;
-use bevy_mod_picking::{events::{Click, Pointer}, prelude::{On, Pickable}};
+use bevy_mod_picking::{
+    events::{Click, Down, Pointer},
+    prelude::{On, Pickable, PointerButton},
+};
 use petgraph::{graph::NodeIndex, prelude::StableDiGraph};
 
 use crate::{
@@ -15,6 +18,7 @@ use crate::{
     graph::{DisjointPipelineGraph, Edge},
     nodes::{
         fields::{Field, FieldMeta},
+        ports::{InputPortVisibilityChanged, OutputPortVisibilityChanged},
         GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected,
     },
     ApplicationState,
@@ -28,10 +32,13 @@ impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            on_node_selection_changed.run_if(in_state(ApplicationState::MainLoop)),
-        )
-        .observe(toggle_input_port_visibility)
-        .observe(toggle_output_port_visibility);
+            (
+                on_node_selection_changed,
+                toggle_input_port_visibility,
+                toggle_output_port_visibility,
+            )
+                .run_if(in_state(ApplicationState::MainLoop)),
+        );
     }
 }
 
@@ -45,16 +52,16 @@ pub struct InspectorPanel {
     displayed_nodes: HashSet<Entity>,
 }
 
-#[derive(Event)]
-pub struct ToggleInputPortVisibility {
-    pub node_index: NodeIndex,
-    pub input_id: InputId,
+#[derive(Component)]
+pub struct InputPortVisibilityToggle {
+    node_index: NodeIndex,
+    input_id: InputId,
 }
 
-#[derive(Event)]
-pub struct ToggleOutputPortVisibility {
-    pub node_index: NodeIndex,
-    pub output_id: OutputId,
+#[derive(Component)]
+pub struct OutputPortVisibilityToggle {
+    node_index: NodeIndex,
+    output_id: OutputId,
 }
 
 impl InspectorPanel {
@@ -238,7 +245,7 @@ fn spawn_input_widget(
                 parent,
                 color,
                 node_index,
-                input_id
+                input_id,
             );
             commands.entity(parent).add_child(widget);
         }
@@ -346,12 +353,10 @@ impl LinearRgbaInputWidget {
                 border_radius: BorderRadius::all(Val::Px(10.0)),
                 ..default()
             })
-            .insert(On::<Pointer<Click>>::commands_mut(move |_click, commands| {
-                commands.trigger(ToggleInputPortVisibility {
-                    node_index,
-                    input_id,
-                })
-            }))
+            .insert(InputPortVisibilityToggle {
+                node_index,
+                input_id,
+            })
             .id();
 
         let red = spawn_color_input(commands, font_system, font.clone(), "R", value.red);
@@ -450,12 +455,10 @@ impl LinearRgbaOutputWidget {
                 background_color: GREEN.into(),
                 ..default()
             })
-            .insert(On::<Pointer<Click>>::commands_mut(move |_click, commands| {
-                commands.trigger(ToggleOutputPortVisibility {
-                    node_index,
-                    output_id,
-                })
-            }))
+            .insert(OutputPortVisibilityToggle {
+                node_index,
+                output_id,
+            })
             .id();
 
         let color_display = commands
@@ -590,36 +593,61 @@ fn spawn_color_input(
 }
 
 fn toggle_input_port_visibility(
-    trigger: Trigger<ToggleInputPortVisibility>,
+    mut down_events: EventReader<Pointer<Down>>,
+    q_toggles: Query<&InputPortVisibilityToggle>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut visibility_events: EventWriter<InputPortVisibilityChanged>,
 ) {
-    let mut pipeline = q_pipeline.single_mut();
-    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node_index) {
-        println!("HLELLOOO?");
-        if let Some(meta) = node.get_input_meta(trigger.event().input_id) {
-            let new_meta = FieldMeta {
-                visible: !meta.visible,
-                ..meta.clone()
-            };
-            node.set_input_meta(trigger.event().input_id, new_meta);
+    for event in down_events.read() {
+        if event.button == PointerButton::Primary {
+            if let Ok(toggle) = q_toggles.get(event.target) {
+                let mut pipeline = q_pipeline.single_mut();
+                if let Some(node) = pipeline.graph.node_weight_mut(toggle.node_index) {
+                    if let Some(meta) = node.get_input_meta(toggle.input_id) {
+                        let new_visible = !meta.visible;
+                        let new_meta = FieldMeta {
+                            visible: new_visible,
+                            ..meta.clone()
+                        };
+                        node.set_input_meta(toggle.input_id, new_meta);
+
+                        visibility_events.send(InputPortVisibilityChanged {
+                            node_index: toggle.node_index,
+                            input_id: toggle.input_id,
+                        });
+                    }
+                }
+            }
         }
     }
 }
 
 fn toggle_output_port_visibility(
-    trigger: Trigger<ToggleOutputPortVisibility>,
+    mut down_events: EventReader<Pointer<Down>>,
+    q_toggles: Query<&OutputPortVisibilityToggle>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut visibility_events: EventWriter<OutputPortVisibilityChanged>,
 ) {
-    let mut pipeline = q_pipeline.single_mut();
-    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node_index) {
-        if let Some(meta) = node.get_output_meta(trigger.event().output_id) {
-            
-        println!("HLELLOOOUUTTPUT");
-            let new_meta = FieldMeta {
-                visible: !meta.visible,
-                ..meta.clone()
-            };
-            node.set_output_meta(trigger.event().output_id, new_meta);
+    for event in down_events.read() {
+        if event.button == PointerButton::Primary {
+            if let Ok(toggle) = q_toggles.get(event.target) {
+                let mut pipeline = q_pipeline.single_mut();
+                if let Some(node) = pipeline.graph.node_weight_mut(toggle.node_index) {
+                    if let Some(meta) = node.get_output_meta(toggle.output_id) {
+                        let new_visible = !meta.visible;
+                        let new_meta = FieldMeta {
+                            visible: new_visible,
+                            ..meta.clone()
+                        };
+                        node.set_output_meta(toggle.output_id, new_meta);
+
+                        visibility_events.send(OutputPortVisibilityChanged {
+                            node_index: toggle.node_index,
+                            output_id: toggle.output_id,
+                        });
+                    }
+                }
+            }
         }
     }
 }

@@ -1,8 +1,6 @@
 use bevy::{prelude::*, utils::HashMap};
 
-use crate::setup::{CustomGpuDevice, CustomGpuQueue};
-
-use super::{fields::FieldMeta, macros::macros::declare_node};
+use crate::{nodes::{fields::FieldMeta, macros::macros::declare_node}, setup::{CustomGpuDevice, CustomGpuQueue}};
 
 declare_node!(
     name: ColorNode,

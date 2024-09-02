@@ -90,7 +90,7 @@ pub struct UiRoot;
 #[derive(Component)]
 pub struct NodeEditArea;
 
-fn ui_setup(mut commands: Commands, mut font_system: ResMut<CosmicFontSystem>, fonts: Res<FontAssets>) {
+fn ui_setup(mut commands: Commands) {
     let ui_root = commands
         .spawn(NodeBundle {
             style: Style {
