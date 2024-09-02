@@ -182,10 +182,20 @@ pub mod macros {
             $vis enum $enum_name {
                 $($variant($node_type)),*
             }
-
+    
             #[derive(Event, Debug, Clone)]
             pub enum RequestSpawnNodeKind {
                 $($variant,)*
+            }
+    
+            impl std::fmt::Display for $enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    match self {
+                        $(
+                            $enum_name::$variant(_) => write!(f, "{}", stringify!($variant).replace("([A-Z])", " $1")),
+                        )*
+                    }
+                }
             }
 
             impl NodeTrait for $enum_name {

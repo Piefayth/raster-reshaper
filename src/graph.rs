@@ -84,12 +84,12 @@ fn update_nodes(
                     "Found an image handle on a node sprite that does not reference a known image.",
                 );
                 match &node {
-                    GraphNode::ExampleNode(ex) => {
+                    GraphNode::Example(ex) => {
                         if let Some(image) = &ex.output_image {
                             *old_image = image.clone();
                         }
                     }
-                    GraphNode::ColorNode(color_node) => {
+                    GraphNode::Color(color_node) => {
                         // well if the color changed i guess we'd update the little preview?
                     }
                 }

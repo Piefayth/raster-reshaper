@@ -85,7 +85,7 @@ impl ContextMenu {
                         font.clone(),
                         RequestSpawnNode {
                             position: cursor_pos,
-                            kind: RequestSpawnNodeKind::ExampleNode,
+                            kind: RequestSpawnNodeKind::Example,
                         },
                     );
                     ContextMenuEntry::spawn(
@@ -94,7 +94,7 @@ impl ContextMenu {
                         font.clone(),
                         RequestSpawnNode {
                             position: cursor_pos,
-                            kind: RequestSpawnNodeKind::ColorNode,
+                            kind: RequestSpawnNodeKind::Color,
                         },
                     );
                 });

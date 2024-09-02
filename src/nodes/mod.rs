@@ -120,8 +120,8 @@ pub trait NodeTrait {
 
 declare_node_enum_and_impl_trait! {
     pub enum GraphNode {
-        ExampleNode(ExampleNode),
-        ColorNode(ColorNode),
+        Example(ExampleNode),
+        Color(ColorNode),
     }
 }
 
@@ -712,7 +712,7 @@ fn spawn_requested_node(
     let node_entity = commands.spawn(NodeDisplay { index: 0.into() }).id();
 
     let spawned_node_index = match trigger.event().kind {
-        RequestSpawnNodeKind::ExampleNode => {
+        RequestSpawnNodeKind::Example => {
             let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
             let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
             let example_node = ExampleNode::new(
@@ -725,11 +725,11 @@ fn spawn_requested_node(
                 TextureFormat::Rgba8Unorm,
             );
 
-            pipeline.graph.add_node(GraphNode::ExampleNode(example_node))
+            pipeline.graph.add_node(GraphNode::Example(example_node))
         }
-        RequestSpawnNodeKind::ColorNode => {
+        RequestSpawnNodeKind::Color => {
             let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-            pipeline.graph.add_node(GraphNode::ColorNode(color_node))
+            pipeline.graph.add_node(GraphNode::Color(color_node))
         }
     };
 
@@ -749,7 +749,7 @@ fn spawn_requested_node(
                 title_bar_height: NODE_TITLE_BAR_SIZE,
                 node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
                 background_color: match node {
-                    GraphNode::ColorNode(cn) => cn.out_color,
+                    GraphNode::Color(cn) => cn.out_color,
                     _ => GRAY_200.into(),
                 },
                 border_width: 2.,
@@ -1234,8 +1234,8 @@ fn port_color(field: &Field) -> LinearRgba {
 
 fn node_name(kind: &RequestSpawnNodeKind) -> &'static str {
     match kind {
-        RequestSpawnNodeKind::ExampleNode => "Example",
-        RequestSpawnNodeKind::ColorNode => "Color",
+        RequestSpawnNodeKind::Example => "Example",
+        RequestSpawnNodeKind::Color => "Color",
     }
 }
 
