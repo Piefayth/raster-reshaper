@@ -8,7 +8,7 @@ use petgraph::{graph::DiGraph, prelude::StableDiGraph};
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::Line, nodes::Node, ApplicationState
+    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::Line, nodes::GraphNode, ApplicationState
 };
 
 pub struct SetupPlugin;
@@ -79,7 +79,7 @@ fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
 }
 
 fn spawn_graph_entity(mut commands: Commands) {
-    let graph = StableDiGraph::<Node, Edge>::new();
+    let graph = StableDiGraph::<GraphNode, Edge>::new();
 
     commands.spawn(DisjointPipelineGraph { graph });
 

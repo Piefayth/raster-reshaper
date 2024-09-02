@@ -119,7 +119,7 @@ pub trait NodeTrait {
 }
 
 declare_node_enum_and_impl_trait! {
-    pub enum Node {
+    pub enum GraphNode {
         ExampleNode(ExampleNode),
         ColorNode(ColorNode),
     }
@@ -249,7 +249,7 @@ struct SelectionBox {
 }
 
 #[derive(Component)]
-struct Selected;
+pub struct Selected;
 
 fn handle_node_selection(
     mut commands: Commands,
@@ -725,11 +725,11 @@ fn spawn_requested_node(
                 TextureFormat::Rgba8Unorm,
             );
 
-            pipeline.graph.add_node(Node::ExampleNode(example_node))
+            pipeline.graph.add_node(GraphNode::ExampleNode(example_node))
         }
         RequestSpawnNodeKind::ColorNode => {
             let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-            pipeline.graph.add_node(Node::ColorNode(color_node))
+            pipeline.graph.add_node(GraphNode::ColorNode(color_node))
         }
     };
 
@@ -749,7 +749,7 @@ fn spawn_requested_node(
                 title_bar_height: NODE_TITLE_BAR_SIZE,
                 node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
                 background_color: match node {
-                    Node::ColorNode(cn) => cn.out_color,
+                    GraphNode::ColorNode(cn) => cn.out_color,
                     _ => GRAY_200.into(),
                 },
                 border_width: 2.,

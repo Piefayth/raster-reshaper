@@ -1,28 +1,42 @@
 use bevy::{
     color::palettes::{css::RED, tailwind::SLATE_900},
-    prelude::*,
+    prelude::*, utils::HashSet,
 };
 use bevy_cosmic_edit::*;
 use bevy_mod_picking::prelude::Pickable;
+use petgraph::{graph::NodeIndex, prelude::StableDiGraph};
 
-use crate::ApplicationState;
+use crate::{asset::FontAssets, graph::{DisjointPipelineGraph, Edge}, nodes::{fields::Field, GraphNode, NodeDisplay, NodeTrait, Selected}, ApplicationState};
 
 use super::{Spawner, UIContext};
 
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
-    fn build(&self, app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, on_node_selection_changed.run_if(in_state(ApplicationState::MainLoop)));
+    }
 }
 
 #[derive(Component)]
-pub struct InspectorPanel;
+struct InspectorSection {
+    node: Entity,
+}
+
+#[derive(Component)]
+pub struct InspectorPanel {
+    displayed_nodes: HashSet<Entity>,
+}
 
 impl InspectorPanel {
+    pub fn new() -> Self {
+        Self {
+            displayed_nodes: HashSet::new(),
+        }
+    }
+
     pub fn spawn(
         commands: &mut Commands,
-        font_system: &mut CosmicFontSystem,
-        font: Handle<Font>,
     ) -> Entity {
         let panel_entity = commands
             .spawn(NodeBundle {
@@ -33,22 +47,102 @@ impl InspectorPanel {
                     padding: UiRect::all(Val::Px(10.0)),
                     ..default()
                 },
-                background_color: bevy::color::palettes::tailwind::SLATE_900.into(),
+                background_color: SLATE_900.into(),
                 ..default()
             })
             .insert(Name::new("Inspector Panel"))
             .insert(UIContext::Inspector)
-            .insert(InspectorPanel)
+            .insert(InspectorPanel::new())
             .id();
 
-        // Spawn a test LinearRgbaWidget
-        let test_color = LinearRgba::new(0.5, 0.7, 0.3, 1.0);
-        let widget_entity =
-            LinearRgbaWidget::spawn(commands, font_system, font, panel_entity, test_color);
-
-        commands.entity(panel_entity).add_child(widget_entity);
-
         panel_entity
+    }
+}
+
+fn on_node_selection_changed(
+    mut commands: Commands,
+    selected_nodes: Query<Entity, (With<NodeDisplay>, With<Selected>)>,
+    mut removed_selections: RemovedComponents<Selected>,
+    nodes: Query<&NodeDisplay>,
+    pipeline: Query<&DisjointPipelineGraph>,
+    mut font_system: ResMut<CosmicFontSystem>,
+    fonts: Res<FontAssets>,
+    mut inspector_panel: Query<(Entity, &mut InspectorPanel)>,
+    sections: Query<(Entity, &InspectorSection)>,
+) {
+    let pipeline = pipeline.single();
+    let (inspector_panel_entity, mut inspector_panel) = inspector_panel.single_mut();
+    
+    // Handle deselections
+    for deselected_entity in removed_selections.read() {
+        if inspector_panel.displayed_nodes.remove(&deselected_entity) {
+            if let Some((section_entity, _)) = sections.iter().find(|(_, section)| section.node == deselected_entity) {
+                commands.entity(section_entity).despawn_recursive();
+            }
+        }
+    }
+
+    // Handle selections
+    for selected_entity in selected_nodes.iter() {
+        if !inspector_panel.displayed_nodes.contains(&selected_entity) {
+            if let Ok(node_display) = nodes.get(selected_entity) {
+                spawn_inspector_widgets(
+                    &mut commands,
+                    &pipeline.graph,
+                    inspector_panel_entity,
+                    node_display.index,
+                    selected_entity,
+                    &mut font_system,
+                    &fonts,
+                );
+                inspector_panel.displayed_nodes.insert(selected_entity);
+            }
+        }
+    }
+}
+
+fn spawn_inspector_widgets(
+    commands: &mut Commands,
+    graph: &StableDiGraph<GraphNode, Edge>,
+    inspector_panel: Entity,
+    node_index: NodeIndex,
+    node_entity: Entity,
+    font_system: &mut CosmicFontSystem,
+    fonts: &Res<FontAssets>,
+) {
+    if let Some(node) = graph.node_weight(node_index) {
+        let section_entity = commands.spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                ..default()
+            },
+            InspectorSection { node: node_entity },
+        )).id();
+
+        commands.entity(inspector_panel).add_child(section_entity);
+
+        for &input_id in node.input_fields() {
+            if let Some(field) = node.get_input(input_id) {
+                match field {
+                    Field::LinearRgba(color) => {
+                        let widget = LinearRgbaWidget::spawn(
+                            commands,
+                            font_system,
+                            fonts.deja_vu_sans.clone(),
+                            section_entity,
+                            color,
+                        );
+                        commands.entity(section_entity).add_child(widget);
+                    }
+                    // Add more field types here as we implement more widgets
+                    _ => {}
+                }
+            }
+        }
     }
 }
 

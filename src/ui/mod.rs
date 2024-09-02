@@ -124,7 +124,7 @@ fn ui_setup(mut commands: Commands, mut font_system: ResMut<CosmicFontSystem>, f
         })
         .id();
 
-    let inspector_panel = InspectorPanel::spawn(&mut commands, &mut font_system, fonts.deja_vu_sans.clone());
+    let inspector_panel = InspectorPanel::spawn(&mut commands);
 
     commands.entity(ui_root)
         .push_children(&[node_edit_area, inspector_panel]);

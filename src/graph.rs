@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{
     asset::NodeDisplayMaterial,
-    nodes::{fields::can_convert_field, InputId, Node, NodeDisplay, NodeTrait, OutputId},
+    nodes::{fields::can_convert_field, InputId, GraphNode, NodeDisplay, NodeTrait, OutputId},
     setup::{CustomGpuDevice, CustomGpuQueue},
     ApplicationState,
 };
@@ -37,7 +37,7 @@ impl Plugin for GraphPlugin {
 
 #[derive(Component, Clone)]
 pub struct DisjointPipelineGraph {
-    pub graph: StableDiGraph<Node, Edge>,
+    pub graph: StableDiGraph<GraphNode, Edge>,
 }
 
 #[derive(Component, Deref)]
@@ -52,7 +52,7 @@ pub struct RequestProcessPipeline;
 #[derive(Clone)]
 pub struct ProcessNode {
     index: NodeIndex,
-    node: Node,
+    node: GraphNode,
 }
 
 #[derive(Clone)]
@@ -84,12 +84,12 @@ fn update_nodes(
                     "Found an image handle on a node sprite that does not reference a known image.",
                 );
                 match &node {
-                    Node::ExampleNode(ex) => {
+                    GraphNode::ExampleNode(ex) => {
                         if let Some(image) = &ex.output_image {
                             *old_image = image.clone();
                         }
                     }
-                    Node::ColorNode(color_node) => {
+                    GraphNode::ColorNode(color_node) => {
                         // well if the color changed i guess we'd update the little preview?
                     }
                 }
@@ -244,7 +244,7 @@ async fn process_node(mut p_node: ProcessNode) -> ProcessNode {
 
 // Determines which nodes have resolved dependencies and are not currently being processed.
 fn get_processible_nodes(
-    graph: &StableDiGraph<Node, Edge>,
+    graph: &StableDiGraph<GraphNode, Edge>,
     unprocessed_nodes: &HashSet<NodeIndex>,
     in_flight_nodes: &HashSet<NodeIndex>,
 ) -> Vec<ProcessNode> {
@@ -283,7 +283,7 @@ pub trait AddEdgeChecked {
     ) -> Result<(), String>;
 }
 
-impl AddEdgeChecked for StableDiGraph<Node, Edge> {
+impl AddEdgeChecked for StableDiGraph<GraphNode, Edge> {
     fn add_edge_checked(
         &mut self,
         from: NodeIndex,
