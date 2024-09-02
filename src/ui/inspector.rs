@@ -152,8 +152,8 @@ fn spawn_color_input(
         // Square button
         parent.spawn(ButtonBundle {
             style: Style {
-                width: Val::Px(20.0),
-                height: Val::Px(20.0),
+                width: Val::Px(12.0),
+                height: Val::Px(12.0),
                 margin: UiRect::right(Val::Px(5.0)),
                 ..default()
             },
@@ -164,13 +164,13 @@ fn spawn_color_input(
         // Round button
         parent.spawn(ButtonBundle {
             style: Style {
-                width: Val::Px(20.0),
-                height: Val::Px(20.0),
+                width: Val::Px(12.0),
+                height: Val::Px(12.0),
                 margin: UiRect::right(Val::Px(5.0)),
                 ..default()
             },
             background_color: Color::srgba(0.2, 0.2, 0.2, 1.0).into(),
-            border_radius: BorderRadius::all(Val::Px(10.0)),
+            border_radius: BorderRadius::all(Val::Px(6.0)),
             ..default()
         });
 
@@ -203,7 +203,8 @@ fn spawn_color_input(
                 background_color: Color::srgba(0.2, 0.2, 0.2, 1.0).into(),
                 ..default()
             })
-            .insert(CosmicSource(cosmic_edit));
+            .insert(CosmicSource(cosmic_edit))
+            .insert(ScrollDisabled);
     })
     .id();
 

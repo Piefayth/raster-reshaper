@@ -7,8 +7,8 @@ use bevy::{
     prelude::ChildBuilder,
     prelude::*,
 };
-use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem};
-use bevy_mod_picking::prelude::Pickable;
+use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem, CosmicSource, FocusedWidget};
+use bevy_mod_picking::{events::{Down, Pointer}, prelude::Pickable};
 use context_menu::ContextMenuPlugin;
 use inspector::{InspectorPanel, InspectorPlugin};
 use petgraph::graph::NodeIndex;
@@ -38,6 +38,7 @@ impl Plugin for UiPlugin {
 
         app.add_systems(OnEnter(ApplicationState::Setup), ui_setup);
         app.add_systems(Update, (
+            drop_text_focus,
             change_active_editor_ui,
             deselect_editor_on_esc,
         ).run_if(in_state(ApplicationState::MainLoop)));
@@ -127,4 +128,17 @@ fn ui_setup(mut commands: Commands, mut font_system: ResMut<CosmicFontSystem>, f
 
     commands.entity(ui_root)
         .push_children(&[node_edit_area, inspector_panel]);
+}
+
+// clicking anything that isnt a text input = drop focus
+fn drop_text_focus(
+    mut ev_down: EventReader<Pointer<Down>>,
+    mut focused: ResMut<FocusedWidget>,
+    q_cosmic_source: Query<Entity, With<CosmicSource>>,
+) {
+    for event in ev_down.read() {
+        if !q_cosmic_source.contains(event.target) {
+            focused.0 = None;
+        }
+    }
 }
