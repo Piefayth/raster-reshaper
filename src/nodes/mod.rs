@@ -11,9 +11,9 @@ use crate::{
     },
     camera::MainCamera,
     graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
-    line_renderer::Line,
+    line_renderer::{generate_color_gradient, generate_curved_line, Line},
     setup::{
-        generate_color_gradient, generate_curved_line, ApplicationCanvas, CustomGpuDevice,
+        ApplicationCanvas, CustomGpuDevice,
         CustomGpuQueue,
     },
     ui::{InputPortContext, OutputPortContext, UIContext},
@@ -42,7 +42,7 @@ use fields::{Field, FieldMeta};
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::Direction;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
-use ports::{port_color, InputPort, InputPortVisibilityChanged, OutputPort, OutputPortVisibilityChanged, PortPlugin};
+use ports::{port_color, InputPort, RequestInputPortRelayout, OutputPort, RequestOutputPortRelayout, PortPlugin};
 use wgpu::TextureFormat;
 
 pub struct NodePlugin;
@@ -699,8 +699,8 @@ fn spawn_requested_node(
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
     fonts: Res<FontAssets>,
-    mut input_visibility_events: EventWriter<InputPortVisibilityChanged>,
-    mut output_visibility_events: EventWriter<OutputPortVisibilityChanged>,
+    mut input_visibility_events: EventWriter<RequestInputPortRelayout>,
+    mut output_visibility_events: EventWriter<RequestOutputPortRelayout>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
@@ -802,7 +802,7 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                input_visibility_events.send(InputPortVisibilityChanged { input_port });
+                input_visibility_events.send(RequestInputPortRelayout { input_port });
             }
 
             // Spawn output ports
@@ -816,7 +816,7 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                output_visibility_events.send(OutputPortVisibilityChanged { output_port });
+                output_visibility_events.send(RequestOutputPortRelayout { output_port });
             }
         });
 

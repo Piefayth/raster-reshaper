@@ -24,7 +24,7 @@ use crate::{
     graph::{DisjointPipelineGraph, Edge},
     nodes::{
         fields::{Field, FieldMeta},
-        ports::{InputPort, InputPortVisibilityChanged, OutputPort, OutputPortVisibilityChanged},
+        ports::{InputPort, RequestInputPortRelayout, OutputPort, RequestOutputPortRelayout},
         GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RemoveEdgeEvent, Selected,
         UndoableEvent,
     },
@@ -60,13 +60,15 @@ pub struct InspectorPanel {
 }
 
 #[derive(Component)]
-pub struct InputPortVisibilityToggle {
+pub struct InputPortVisibilitySwitch {
     input_port: Entity,
+    is_visible: bool,
 }
 
 #[derive(Component)]
-pub struct OutputPortVisibilityToggle {
+pub struct OutputPortVisibilitySwitch {
     output_port: Entity,
+    is_visible: bool,
 }
 
 impl InspectorPanel {
@@ -179,8 +181,9 @@ fn on_node_selection_changed(
                                             }
                                         })
                                 });
-
+                    
                                 if let Some(input_port) = maybe_input_port {
+                                    let is_visible = node.get_input_meta(input_id).map(|meta| meta.visible).unwrap_or(false);
                                     spawn_input_widget(
                                         &mut commands,
                                         &mut font_system,
@@ -188,29 +191,40 @@ fn on_node_selection_changed(
                                         section_entity,
                                         field,
                                         input_port,
+                                        is_visible,
                                     );
                                 }
                             }
                         }
-
                         spawn_header(&mut commands, section_entity, "Outputs", &fonts);
 
                         // Spawn output widgets
                         for &output_id in node.output_fields() {
                             if let Some(field) = node.get_output(output_id) {
-                                let output_port = node_children
-                                    .iter()
-                                    .filter_map(|&child| output_ports.get(child).ok())
-                                    .find(|(_, port)| port.output_id == output_id)
-                                    .map(|(entity, _)| entity);
-
-                                spawn_output_widget(
-                                    &mut commands,
-                                    &fonts,
-                                    section_entity,
-                                    field,
-                                    output_port.unwrap(),
-                                );
+                                let maybe_output_port = node_children.iter().find_map(|&child| {
+                                    output_ports
+                                        .get(child)
+                                        .ok()
+                                        .and_then(|(entity, output_port)| {
+                                            if output_port.output_id == output_id {
+                                                Some(entity)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                });
+                    
+                                if let Some(output_port) = maybe_output_port {
+                                    let is_visible = node.get_output_meta(output_id).map(|meta| meta.visible).unwrap_or(false);
+                                    spawn_output_widget(
+                                        &mut commands,
+                                        &fonts,
+                                        section_entity,
+                                        field,
+                                        output_port,
+                                        is_visible,
+                                    );
+                                }
                             }
                         }
                     }
@@ -248,6 +262,7 @@ fn spawn_input_widget(
     parent: Entity,
     field: Field,
     input_port: Entity,
+    is_visible: bool,
 ) {
     match field {
         Field::LinearRgba(color) => {
@@ -258,6 +273,7 @@ fn spawn_input_widget(
                 parent,
                 color,
                 input_port,
+                is_visible
             );
             commands.entity(parent).add_child(widget);
         }
@@ -272,6 +288,7 @@ fn spawn_output_widget(
     parent: Entity,
     field: Field,
     output_port: Entity,
+    is_visible: bool,
 ) {
     match field {
         Field::LinearRgba(color) => {
@@ -281,6 +298,7 @@ fn spawn_output_widget(
                 parent,
                 color,
                 output_port,
+                is_visible
             );
             commands.entity(parent).add_child(widget);
         }
@@ -305,6 +323,7 @@ impl LinearRgbaInputWidget {
         parent: Entity,
         value: LinearRgba,
         input_port: Entity,
+        is_visible: bool,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
@@ -349,21 +368,20 @@ impl LinearRgbaInputWidget {
             })
             .id();
 
-        let visibility_toggle = commands
-            .spawn(ButtonBundle {
-                style: Style {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
-                    margin: UiRect::right(Val::Px(5.0)),
-
+            let visibility_switch = commands
+                .spawn(ButtonBundle {
+                    style: Style {
+                        width: Val::Px(20.0),
+                        height: Val::Px(20.0),
+                        margin: UiRect::right(Val::Px(5.0)),
+                        ..default()
+                    },
+                    background_color: if is_visible { GREEN.into() } else { RED.into() },
+                    border_radius: BorderRadius::all(Val::Px(10.0)),
                     ..default()
-                },
-                background_color: GREEN.into(),
-                border_radius: BorderRadius::all(Val::Px(10.0)),
-                ..default()
-            })
-            .insert(InputPortVisibilityToggle { input_port })
-            .id();
+                })
+                .insert(InputPortVisibilitySwitch { input_port, is_visible })
+                .id();
 
         let red = spawn_color_input(commands, font_system, font.clone(), "R", value.red);
         let green = spawn_color_input(commands, font_system, font.clone(), "G", value.green);
@@ -375,7 +393,7 @@ impl LinearRgbaInputWidget {
             .push_children(&[
                 label,
                 animation_toggle,
-                visibility_toggle,
+                visibility_switch,
                 red,
                 green,
                 blue,
@@ -404,6 +422,7 @@ impl LinearRgbaOutputWidget {
         parent: Entity,
         value: LinearRgba,
         output_port: Entity,
+        is_visible: bool,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
@@ -448,7 +467,8 @@ impl LinearRgbaOutputWidget {
             })
             .id();
 
-        let visibility_toggle = commands
+
+        let visibility_switch = commands
             .spawn(ButtonBundle {
                 style: Style {
                     width: Val::Px(20.0),
@@ -457,10 +477,10 @@ impl LinearRgbaOutputWidget {
                     ..default()
                 },
                 border_radius: BorderRadius::all(Val::Px(10.0)),
-                background_color: GREEN.into(),
+                background_color: if is_visible { GREEN.into() } else { RED.into() },
                 ..default()
             })
-            .insert(OutputPortVisibilityToggle { output_port })
+            .insert(OutputPortVisibilitySwitch { output_port, is_visible })
             .id();
 
         let color_display = commands
@@ -497,7 +517,7 @@ impl LinearRgbaOutputWidget {
             .push_children(&[
                 label,
                 animation_toggle,
-                visibility_toggle,
+                visibility_switch,
                 color_display,
                 color_text,
             ])
@@ -596,34 +616,38 @@ fn spawn_color_input(
 
 fn toggle_input_port_visibility(
     mut down_events: EventReader<Pointer<Down>>,
-    q_toggles: Query<&InputPortVisibilityToggle>,
+    mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut visibility_events: EventWriter<InputPortVisibilityChanged>,
+    mut visibility_events: EventWriter<RequestInputPortRelayout>,
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<(Entity, &OutputPort)>,
     mut undoable_events: EventWriter<UndoableEvent>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
-            if let Ok(toggle) = q_toggles.get(event.target) {
+            if let Ok((mut switch, mut background_color)) = q_switches.get_mut(event.target) {
                 let mut pipeline = q_pipeline.single_mut();
-                let port = q_input_ports.get(toggle.input_port).unwrap();
+                let port = q_input_ports.get(switch.input_port).unwrap();
 
                 if let Some(node) = pipeline.graph.node_weight_mut(port.node_index) {
                     if let Some(meta) = node.get_input_meta(port.input_id) {
-                        let new_visible = !meta.visible;
+                        let new_visibility = !switch.is_visible;
                         let new_meta = FieldMeta {
-                            visible: new_visible,
+                            visible: new_visibility,
                             ..meta.clone()
                         };
                         node.set_input_meta(port.input_id, new_meta);
 
-                        visibility_events.send(InputPortVisibilityChanged {
-                            input_port: toggle.input_port,
+                        visibility_events.send(RequestInputPortRelayout {
+                            input_port: switch.input_port,
                         });
 
-                        // Send remove edge events if the port is now hidden
-                        if !new_visible {
+                        // Update the switch state and background color
+                        switch.is_visible = new_visibility;
+                        *background_color = if new_visibility { GREEN.into() } else { RED.into() };
+
+                        // Remove edges if the port is now hidden
+                        if !new_visibility {
                             for edge in pipeline
                                 .graph
                                 .edges_directed(port.node_index, Direction::Incoming)
@@ -638,7 +662,7 @@ fn toggle_input_port_visibility(
                                         undoable_events.send(UndoableEvent::RemoveEdge(
                                             RemoveEdgeEvent {
                                                 start_port: output_entity,
-                                                end_port: toggle.input_port,
+                                                end_port: switch.input_port,
                                             },
                                         ));
                                     }
@@ -654,34 +678,38 @@ fn toggle_input_port_visibility(
 
 fn toggle_output_port_visibility(
     mut down_events: EventReader<Pointer<Down>>,
-    q_toggles: Query<&OutputPortVisibilityToggle>,
+    mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut visibility_events: EventWriter<OutputPortVisibilityChanged>,
+    mut visibility_events: EventWriter<RequestOutputPortRelayout>,
     q_output_ports: Query<&OutputPort>,
     q_input_ports: Query<(Entity, &InputPort)>,
     mut undoable_events: EventWriter<UndoableEvent>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
-            if let Ok(toggle) = q_toggles.get(event.target) {
+            if let Ok((mut switch, mut background_color)) = q_switches.get_mut(event.target) {
                 let mut pipeline = q_pipeline.single_mut();
-                let port = q_output_ports.get(toggle.output_port).unwrap();
+                let port = q_output_ports.get(switch.output_port).unwrap();
 
                 if let Some(node) = pipeline.graph.node_weight_mut(port.node_index) {
                     if let Some(meta) = node.get_output_meta(port.output_id) {
-                        let new_visible = !meta.visible;
+                        let new_visibility = !switch.is_visible;
                         let new_meta = FieldMeta {
-                            visible: new_visible,
+                            visible: new_visibility,
                             ..meta.clone()
                         };
                         node.set_output_meta(port.output_id, new_meta);
 
-                        visibility_events.send(OutputPortVisibilityChanged {
-                            output_port: toggle.output_port,
+                        visibility_events.send(RequestOutputPortRelayout {
+                            output_port: switch.output_port,
                         });
 
-                        // Send remove edge events if the port is now hidden
-                        if !new_visible {
+                        // Update the switch state and background color
+                        switch.is_visible = new_visibility;
+                        *background_color = if new_visibility { GREEN.into() } else { RED.into() };
+
+                        // Remove edges if the port is now hidden
+                        if !new_visibility {
                             for edge in pipeline
                                 .graph
                                 .edges_directed(port.node_index, Direction::Outgoing)
@@ -695,7 +723,7 @@ fn toggle_output_port_visibility(
                                     {
                                         undoable_events.send(UndoableEvent::RemoveEdge(
                                             RemoveEdgeEvent {
-                                                start_port: toggle.output_port,
+                                                start_port: switch.output_port,
                                                 end_port: input_entity,
                                             },
                                         ));

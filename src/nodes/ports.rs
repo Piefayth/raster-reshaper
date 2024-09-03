@@ -1,5 +1,5 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, graph::DisjointPipelineGraph, line_renderer::Line, ui::{inspector::InputPortVisibilityToggle, InputPortContext, OutputPortContext, Spawner, UIContext}, ApplicationState
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, graph::DisjointPipelineGraph, line_renderer::Line, ui::{InputPortContext, OutputPortContext, Spawner, UIContext}, ApplicationState
 };
 
 use super::{fields::Field, AddEdgeEvent, GraphNode, InputId, NodeTrait, OutputId, UndoableEvent};
@@ -25,18 +25,18 @@ impl Plugin for PortPlugin {
             (handle_port_hover, handle_port_selection, reposition_input_ports, reposition_output_ports).run_if(in_state(ApplicationState::MainLoop)),
         );
 
-        app.add_event::<InputPortVisibilityChanged>();
-        app.add_event::<OutputPortVisibilityChanged>();
+        app.add_event::<RequestInputPortRelayout>();
+        app.add_event::<RequestOutputPortRelayout>();
     }
 }
 
 #[derive(Event)]
-pub struct InputPortVisibilityChanged {
+pub struct RequestInputPortRelayout {
     pub input_port: Entity,
 }
 
 #[derive(Event)]
-pub struct OutputPortVisibilityChanged {
+pub struct RequestOutputPortRelayout {
     pub output_port: Entity,
 }
 
@@ -343,7 +343,7 @@ fn handle_port_hover(
 }
 
 pub fn reposition_input_ports(
-    mut events: EventReader<InputPortVisibilityChanged>,
+    mut events: EventReader<RequestInputPortRelayout>,
     mut query: Query<(&mut Transform, &mut Visibility, &InputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
@@ -377,7 +377,7 @@ pub fn reposition_input_ports(
 }
 
 pub fn reposition_output_ports(
-    mut events: EventReader<OutputPortVisibilityChanged>,
+    mut events: EventReader<RequestOutputPortRelayout>,
     mut query: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,

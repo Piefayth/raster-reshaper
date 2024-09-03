@@ -135,8 +135,6 @@ fn process_pipeline(
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
-    render_device: Res<CustomGpuDevice>,
-    render_queue: Res<CustomGpuQueue>,
 ) {
     if event_reader.read().next().is_some() {
         if q_pipeline.is_empty() {

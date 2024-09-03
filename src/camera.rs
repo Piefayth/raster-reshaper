@@ -58,13 +58,19 @@ fn setup_camera(
 fn camera_zoom(
     mut query: Query<(&mut OrthographicProjection, &MainCamera)>,
     mut scroll_evr: EventReader<MouseWheel>,
+    canvas_query: Query<&PickingInteraction, With<ApplicationCanvas>>,
 ) {
     let (mut projection, main_camera) = query.single_mut();
 
-    for ev in scroll_evr.read() {
-        let zoom_delta = -ev.y * main_camera.zoom_speed;
-        projection.scale = (projection.scale + zoom_delta)
-            .clamp(main_camera.min_zoom, main_camera.max_zoom);
+    // Check if the canvas is being hovered
+    if let Ok(interaction) = canvas_query.get_single() {
+        if *interaction == PickingInteraction::Hovered {
+            for ev in scroll_evr.read() {
+                let zoom_delta = -ev.y * main_camera.zoom_speed;
+                projection.scale = (projection.scale + zoom_delta)
+                    .clamp(main_camera.min_zoom, main_camera.max_zoom);
+            }
+        }
     }
 }
 
