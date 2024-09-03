@@ -474,6 +474,18 @@ impl From<RemoveEdgeEvent> for UndoableEvent {
     }
 }
 
+impl From<SetInputVisibilityEvent> for UndoableEvent {
+    fn from(event: SetInputVisibilityEvent) -> Self {
+        UndoableEvent::SetInputVisibility(event)
+    }
+}
+
+impl From<SetOutputVisibilityEvent> for UndoableEvent {
+    fn from(event: SetOutputVisibilityEvent) -> Self {
+        UndoableEvent::SetOutputVisibility(event)
+    }
+}
+
 #[derive(Clone)]
 pub enum UndoableEvent {
     AddEdge(AddEdgeEvent),

@@ -41,8 +41,8 @@ impl Plugin for InspectorPlugin {
             Update,
             (
                 on_node_selection_changed,
-                toggle_input_port_visibility,
-                toggle_output_port_visibility,
+                on_click_input_visibility_switch,
+                on_click_output_visibility_switch,
             )
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
@@ -630,10 +630,10 @@ fn spawn_color_input(
 
 // Where do these functions get factored?
 // Will they apply to every panel property? Are some inputs manual-only? Does that matter?
-fn toggle_input_port_visibility(
+fn on_click_input_visibility_switch(
     mut down_events: EventReader<Pointer<Down>>,
-    mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<(Entity, &OutputPort)>,
     mut undoable_events: EventWriter<UndoableEventGroup>,
@@ -641,7 +641,7 @@ fn toggle_input_port_visibility(
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
             if let Ok((switch, _)) = q_switches.get(event.target) {
-                let mut pipeline = q_pipeline.single_mut();
+                let pipeline = q_pipeline.single();
                 let port = q_input_ports.get(switch.input_port).unwrap();
 
                 if let Some(node) = pipeline.graph.node_weight(port.node_index) {
@@ -649,10 +649,13 @@ fn toggle_input_port_visibility(
                         let new_visibility = !meta.visible;
                         let mut events = Vec::new();
 
-                        events.push(UndoableEvent::SetInputVisibility(SetInputVisibilityEvent {
-                            input_port: switch.input_port,
-                            is_visible: new_visibility,
-                        }));
+                        events.push(
+                            SetInputVisibilityEvent {
+                                input_port: switch.input_port,
+                                is_visible: new_visibility,
+                            }
+                            .into(),
+                        );
 
                         if !new_visibility {
                             let edges_to_remove: Vec<_> = pipeline
@@ -664,10 +667,13 @@ fn toggle_input_port_visibility(
                                         if out_port.node_index == edge.source()
                                             && out_port.output_id == edge.weight().from_field
                                         {
-                                            Some(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
-                                                start_port: output_entity,
-                                                end_port: switch.input_port,
-                                            }))
+                                            Some(
+                                                RemoveEdgeEvent {
+                                                    start_port: output_entity,
+                                                    end_port: switch.input_port,
+                                                }
+                                                .into(),
+                                            )
                                         } else {
                                             None
                                         }
@@ -686,10 +692,10 @@ fn toggle_input_port_visibility(
     }
 }
 
-fn toggle_output_port_visibility(
+fn on_click_output_visibility_switch(
     mut down_events: EventReader<Pointer<Down>>,
-    mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,
     q_input_ports: Query<(Entity, &InputPort)>,
     mut undoable_events: EventWriter<UndoableEventGroup>,
@@ -697,7 +703,7 @@ fn toggle_output_port_visibility(
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
             if let Ok((switch, _)) = q_switches.get(event.target) {
-                let mut pipeline = q_pipeline.single_mut();
+                let pipeline = q_pipeline.single();
                 let port = q_output_ports.get(switch.output_port).unwrap();
 
                 if let Some(node) = pipeline.graph.node_weight(port.node_index) {
@@ -705,12 +711,13 @@ fn toggle_output_port_visibility(
                         let new_visibility = !meta.visible;
                         let mut events = Vec::new();
 
-                        events.push(UndoableEvent::SetOutputVisibility(
-                            SetOutputVisibilityEvent {
+                        events.push(
+                            SetOutputVisibilityEvent {  // should this event be responsible for the edge removals? like, yes, but also we are making event soup :(
                                 output_port: switch.output_port,
                                 is_visible: new_visibility,
-                            },
-                        ));
+                            }
+                            .into(),
+                        );
 
                         if !new_visibility {
                             let edges_to_remove: Vec<_> = pipeline
@@ -722,10 +729,13 @@ fn toggle_output_port_visibility(
                                         if in_port.node_index == edge.target()
                                             && in_port.input_id == edge.weight().to_field
                                         {
-                                            Some(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
-                                                start_port: switch.output_port,
-                                                end_port: input_entity,
-                                            }))
+                                            Some(
+                                                RemoveEdgeEvent {
+                                                    start_port: switch.output_port,
+                                                    end_port: input_entity,
+                                                }
+                                                .into(),
+                                            )
                                         } else {
                                             None
                                         }
