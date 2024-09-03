@@ -1,18 +1,35 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, graph::DisjointPipelineGraph, line_renderer::Line, ui::{InputPortContext, OutputPortContext, Spawner, UIContext}, ApplicationState
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS},
+    camera::MainCamera,
+    graph::DisjointPipelineGraph,
+    line_renderer::Line,
+    ui::{
+        inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch},
+        InputPortContext, OutputPortContext, Spawner, UIContext,
+    },
+    ApplicationState,
 };
 
-use super::{fields::Field, AddEdgeEvent, GraphNode, InputId, NodeTrait, OutputId, UndoableEvent};
+use super::{
+    fields::{Field, FieldMeta},
+    AddEdgeEvent, GraphNode, InputId, NodeTrait, OutputId, SetInputVisibilityEvent,
+    SetOutputVisibilityEvent, UndoableEvent, UndoableEventGroup,
+};
 use bevy::{
     color::palettes::{
-        css::{ORANGE, PINK, RED, TEAL, YELLOW},
+        css::{GREEN, ORANGE, PINK, RED, TEAL, YELLOW},
         tailwind::GRAY_400,
-    }, prelude::*, sprite::MaterialMesh2dBundle, ui::Direction as UIDirection, window::PrimaryWindow
+    },
+    prelude::*,
+    sprite::MaterialMesh2dBundle,
+    ui::Direction as UIDirection,
+    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
     events::{DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{Pickable, PointerButton}, PickableBundle,
+    prelude::{Pickable, PointerButton},
+    PickableBundle,
 };
 use petgraph::graph::NodeIndex;
 use petgraph::Direction;
@@ -22,7 +39,15 @@ impl Plugin for PortPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (handle_port_hover, handle_port_selection, reposition_input_ports, reposition_output_ports).run_if(in_state(ApplicationState::MainLoop)),
+            (
+                handle_port_hover,
+                handle_port_selection,
+                reposition_input_ports,
+                reposition_output_ports,
+                handle_input_port_visibility_change,
+                handle_output_port_visibility_change,
+            )
+                .run_if(in_state(ApplicationState::MainLoop)),
         );
 
         app.add_event::<RequestInputPortRelayout>();
@@ -76,7 +101,11 @@ impl InputPort {
                 mesh: meshes.port_mesh.clone(),
                 material: port_material,
                 transform: Transform::from_xyz(0.0, 0.0, 0.5),
-                visibility: if meta.visible { Visibility::Inherited } else { Visibility::Hidden },
+                visibility: if meta.visible {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                },
                 ..default()
             })
             .insert(InputPort {
@@ -91,7 +120,6 @@ impl InputPort {
             .id()
     }
 }
-
 
 impl OutputPort {
     pub fn spawn(
@@ -117,7 +145,11 @@ impl OutputPort {
                 mesh: meshes.port_mesh.clone(),
                 material: port_material,
                 transform: Transform::from_xyz(0.0, 0.0, 0.5),
-                visibility: if meta.visible { Visibility::Inherited } else { Visibility::Hidden },
+                visibility: if meta.visible {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                },
                 ..default()
             })
             .insert(OutputPort {
@@ -132,7 +164,6 @@ impl OutputPort {
             .id()
     }
 }
-
 
 #[derive(Clone, Copy)]
 pub struct SelectingPort {
@@ -153,7 +184,7 @@ pub fn handle_port_selection(
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
     q_pipeline: Query<&DisjointPipelineGraph>,
-    mut undoable_events: EventWriter<UndoableEvent>,
+    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     let (camera, camera_transform) = camera_query.single();
     let window = window.single();
@@ -180,7 +211,7 @@ pub fn handle_port_selection(
                 )
             } else if let Ok((_, transform, output, _)) = maybe_output_port {
                 let node = graph.node_weight(output.node_index).unwrap();
-                let field = node.get_output(output.output_id    ).unwrap();
+                let field = node.get_output(output.output_id).unwrap();
                 (
                     transform.translation().truncate(),
                     Direction::Incoming,
@@ -296,7 +327,7 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(input_port) = maybe_hovered_input {
-                        undoable_events.send(UndoableEvent::AddEdge(AddEdgeEvent {
+                        undoable_events.send(UndoableEventGroup::from_event(AddEdgeEvent {
                             start_port,
                             end_port: input_port,
                         }));
@@ -304,7 +335,7 @@ pub fn handle_port_selection(
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
-                        undoable_events.send(UndoableEvent::AddEdge(AddEdgeEvent {
+                        undoable_events.send(UndoableEventGroup::from_event(AddEdgeEvent {
                             start_port: output_port,
                             end_port: start_port,
                         }));
@@ -354,18 +385,28 @@ pub fn reposition_input_ports(
 
         if let Some(node) = pipeline.graph.node_weight(input_port.node_index) {
             let port_group_vertical_margin = 36.;
-            let visible_inputs: Vec<_> = node.input_fields().iter()
+            let visible_inputs: Vec<_> = node
+                .input_fields()
+                .iter()
                 .filter(|&&id| node.get_input_meta(id).unwrap().visible)
                 .collect();
 
-            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == input_port.node_index) {
+            for (mut transform, mut visibility, port) in query
+                .iter_mut()
+                .filter(|(_, _, p)| p.node_index == input_port.node_index)
+            {
                 let meta = node.get_input_meta(port.input_id).unwrap();
                 if meta.visible {
-                    let index = visible_inputs.iter().position(|&&id| id == port.input_id).unwrap_or(0);
+                    let index = visible_inputs
+                        .iter()
+                        .position(|&&id| id == port.input_id)
+                        .unwrap_or(0);
                     transform.translation = Vec3::new(
                         -NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin - (index as f32 * PORT_RADIUS * 3.),
-                        0.5
+                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
+                            - port_group_vertical_margin
+                            - (index as f32 * PORT_RADIUS * 3.),
+                        0.5,
                     );
                     *visibility = Visibility::Inherited;
                 } else {
@@ -388,22 +429,104 @@ pub fn reposition_output_ports(
 
         if let Some(node) = pipeline.graph.node_weight(output_port.node_index) {
             let port_group_vertical_margin = 36.;
-            let visible_outputs: Vec<_> = node.output_fields().iter()
+            let visible_outputs: Vec<_> = node
+                .output_fields()
+                .iter()
                 .filter(|&&id| node.get_output_meta(id).unwrap().visible)
                 .collect();
 
-            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == output_port.node_index) {
+            for (mut transform, mut visibility, port) in query
+                .iter_mut()
+                .filter(|(_, _, p)| p.node_index == output_port.node_index)
+            {
                 let meta = node.get_output_meta(port.output_id).unwrap();
                 if meta.visible {
-                    let index = visible_outputs.iter().position(|&&id| id == port.output_id).unwrap_or(0);
+                    let index = visible_outputs
+                        .iter()
+                        .position(|&&id| id == port.output_id)
+                        .unwrap_or(0);
                     transform.translation = Vec3::new(
                         NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - port_group_vertical_margin - (index as f32 * PORT_RADIUS * 3.),
-                        0.5
+                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
+                            - port_group_vertical_margin
+                            - (index as f32 * PORT_RADIUS * 3.),
+                        0.5,
                     );
                     *visibility = Visibility::Inherited;
                 } else {
                     *visibility = Visibility::Hidden;
+                }
+            }
+        }
+    }
+}
+
+fn handle_input_port_visibility_change(
+    mut events: EventReader<SetInputVisibilityEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
+    q_input_ports: Query<&InputPort>,
+    mut visibility_events: EventWriter<RequestInputPortRelayout>,
+) {
+    for event in events.read() {
+        let mut pipeline = q_pipeline.single_mut();
+        if let Ok(input_port) = q_input_ports.get(event.input_port) {
+            if let Some(node) = pipeline.graph.node_weight_mut(input_port.node_index) {
+                if let Some(meta) = node.get_input_meta(input_port.input_id) {
+                    let new_meta = FieldMeta {
+                        visible: event.is_visible,
+                        ..meta.clone()
+                    };
+                    node.set_input_meta(input_port.input_id, new_meta);
+
+                    visibility_events.send(RequestInputPortRelayout {
+                        input_port: event.input_port,
+                    });
+
+                    // Find the correct switch entity and update it
+                    for (mut switch, mut background_color) in q_switches.iter_mut() {
+                        if switch.input_port == event.input_port {
+                            switch.is_visible = event.is_visible;
+                            *background_color = if event.is_visible { GREEN.into() } else { RED.into() };
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn handle_output_port_visibility_change(
+    mut events: EventReader<SetOutputVisibilityEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
+    q_output_ports: Query<&OutputPort>,
+    mut visibility_events: EventWriter<RequestOutputPortRelayout>,
+) {
+    for event in events.read() {
+        let mut pipeline = q_pipeline.single_mut();
+        if let Ok(output_port) = q_output_ports.get(event.output_port) {
+            if let Some(node) = pipeline.graph.node_weight_mut(output_port.node_index) {
+                if let Some(meta) = node.get_output_meta(output_port.output_id) {
+                    let new_meta = FieldMeta {
+                        visible: event.is_visible,
+                        ..meta.clone()
+                    };
+                    node.set_output_meta(output_port.output_id, new_meta);
+
+                    visibility_events.send(RequestOutputPortRelayout {
+                        output_port: event.output_port,
+                    });
+
+                    // Find the correct switch entity and update it
+                    for (mut switch, mut background_color) in q_switches.iter_mut() {
+                        if switch.output_port == event.output_port {
+                            switch.is_visible = event.is_visible;
+                            *background_color = if event.is_visible { GREEN.into() } else { RED.into() };
+                            break;
+                        }
+                    }
                 }
             }
         }
