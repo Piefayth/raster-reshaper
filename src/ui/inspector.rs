@@ -4,6 +4,7 @@ use bevy::{
         tailwind::SLATE_900,
     },
     prelude::*,
+    ui::Direction as UIDirection,
     utils::HashSet,
 };
 use bevy_cosmic_edit::*;
@@ -11,15 +12,21 @@ use bevy_mod_picking::{
     events::{Click, Down, Pointer},
     prelude::{On, Pickable, PointerButton},
 };
-use petgraph::{graph::NodeIndex, prelude::StableDiGraph};
+use petgraph::{
+    graph::{EdgeIndex, NodeIndex},
+    prelude::StableDiGraph,
+    visit::EdgeRef,
+    Direction,
+};
 
 use crate::{
     asset::FontAssets,
     graph::{DisjointPipelineGraph, Edge},
     nodes::{
         fields::{Field, FieldMeta},
-        ports::{InputPortVisibilityChanged, OutputPortVisibilityChanged},
-        GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected,
+        ports::{InputPort, InputPortVisibilityChanged, OutputPort, OutputPortVisibilityChanged},
+        GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RemoveEdgeEvent, Selected,
+        UndoableEvent,
     },
     ApplicationState,
 };
@@ -54,14 +61,12 @@ pub struct InspectorPanel {
 
 #[derive(Component)]
 pub struct InputPortVisibilityToggle {
-    node_index: NodeIndex,
-    input_id: InputId,
+    input_port: Entity,
 }
 
 #[derive(Component)]
 pub struct OutputPortVisibilityToggle {
-    node_index: NodeIndex,
-    output_id: OutputId,
+    output_port: Entity,
 }
 
 impl InspectorPanel {
@@ -103,11 +108,14 @@ fn on_node_selection_changed(
     fonts: Res<FontAssets>,
     mut inspector_panel: Query<(Entity, &mut InspectorPanel)>,
     sections: Query<(Entity, &InspectorSection)>,
+    children: Query<&Children>,
+    input_ports: Query<(Entity, &InputPort)>,
+    output_ports: Query<(Entity, &OutputPort)>,
 ) {
     let pipeline = pipeline.single();
     let (inspector_panel_entity, mut inspector_panel) = inspector_panel.single_mut();
 
-    // Handle deselections
+    // Despawn inspector panel widgets for any deslected nodes
     for deselected_entity in removed_selections.read() {
         if inspector_panel.displayed_nodes.remove(&deselected_entity) {
             if let Some((section_entity, _)) = sections
@@ -119,90 +127,96 @@ fn on_node_selection_changed(
         }
     }
 
-    // Handle selections
+    // Spawn inspector panel widgets for any newly selected nodes
     for selected_entity in selected_nodes.iter() {
         if !inspector_panel.displayed_nodes.contains(&selected_entity) {
             if let Ok(node_display) = nodes.get(selected_entity) {
-                spawn_inspector_widgets(
-                    &mut commands,
-                    &pipeline.graph,
-                    inspector_panel_entity,
-                    node_display.index,
-                    selected_entity,
-                    &mut font_system,
-                    &fonts,
-                );
+                let node_index = node_display.index;
+                if let Some(node) = pipeline.graph.node_weight(node_index) {
+                    let section_entity = commands
+                        .spawn((
+                            NodeBundle {
+                                style: Style {
+                                    width: Val::Percent(100.),
+                                    flex_direction: FlexDirection::Column,
+                                    ..default()
+                                },
+                                ..default()
+                            },
+                            InspectorSection {
+                                node: selected_entity,
+                            },
+                        ))
+                        .id();
+
+                    commands
+                        .entity(inspector_panel_entity)
+                        .add_child(section_entity);
+
+                    spawn_header(
+                        &mut commands,
+                        section_entity,
+                        &format!("{} Properties", node),
+                        &fonts,
+                    );
+
+                    spawn_header(&mut commands, section_entity, "Inputs", &fonts);
+
+                    // Get children of the selected node
+                    if let Ok(node_children) = children.get(selected_entity) {
+                        // Spawn input widgets
+                        for &input_id in node.input_fields() {
+                            if let Some(field) = node.get_input(input_id) {
+                                let maybe_input_port = node_children.iter().find_map(|&child| {
+                                    input_ports
+                                        .get(child)
+                                        .ok()
+                                        .and_then(|(entity, input_port)| {
+                                            if input_port.input_id == input_id {
+                                                Some(entity)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                });
+
+                                if let Some(input_port) = maybe_input_port {
+                                    spawn_input_widget(
+                                        &mut commands,
+                                        &mut font_system,
+                                        &fonts,
+                                        section_entity,
+                                        field,
+                                        input_port,
+                                    );
+                                }
+                            }
+                        }
+
+                        spawn_header(&mut commands, section_entity, "Outputs", &fonts);
+
+                        // Spawn output widgets
+                        for &output_id in node.output_fields() {
+                            if let Some(field) = node.get_output(output_id) {
+                                let output_port = node_children
+                                    .iter()
+                                    .filter_map(|&child| output_ports.get(child).ok())
+                                    .find(|(_, port)| port.output_id == output_id)
+                                    .map(|(entity, _)| entity);
+
+                                spawn_output_widget(
+                                    &mut commands,
+                                    &fonts,
+                                    section_entity,
+                                    field,
+                                    output_port.unwrap(),
+                                );
+                            }
+                        }
+                    }
+                }
+
                 inspector_panel.displayed_nodes.insert(selected_entity);
-            }
-        }
-    }
-}
-
-fn spawn_inspector_widgets(
-    commands: &mut Commands,
-    graph: &StableDiGraph<GraphNode, Edge>,
-    inspector_panel: Entity,
-    node_index: NodeIndex,
-    node_entity: Entity,
-    font_system: &mut CosmicFontSystem,
-    fonts: &Res<FontAssets>,
-) {
-    if let Some(node) = graph.node_weight(node_index) {
-        let section_entity = commands
-            .spawn((
-                NodeBundle {
-                    style: Style {
-                        width: Val::Percent(100.),
-                        flex_direction: FlexDirection::Column,
-                        ..default()
-                    },
-                    ..default()
-                },
-                InspectorSection { node: node_entity },
-            ))
-            .id();
-
-        commands.entity(inspector_panel).add_child(section_entity);
-
-        spawn_header(
-            commands,
-            section_entity,
-            &format!("{} Properties", node),
-            fonts,
-        );
-
-        // Spawn inputs header
-        spawn_header(commands, section_entity, "Inputs", fonts);
-
-        // Spawn input widgets
-        for &input_id in node.input_fields() {
-            if let Some(field) = node.get_input(input_id) {
-                spawn_input_widget(
-                    commands,
-                    font_system,
-                    fonts,
-                    section_entity,
-                    field,
-                    input_id,
-                    node_index,
-                );
-            }
-        }
-
-        // Spawn outputs header
-        spawn_header(commands, section_entity, "Outputs", fonts);
-
-        // Spawn output widgets
-        for &output_id in node.output_fields() {
-            if let Some(field) = node.get_output(output_id) {
-                spawn_output_widget(
-                    commands,
-                    fonts,
-                    section_entity,
-                    field,
-                    output_id,
-                    node_index,
-                );
             }
         }
     }
@@ -233,8 +247,7 @@ fn spawn_input_widget(
     fonts: &Res<FontAssets>,
     parent: Entity,
     field: Field,
-    input_id: InputId,
-    node_index: NodeIndex,
+    input_port: Entity,
 ) {
     match field {
         Field::LinearRgba(color) => {
@@ -244,8 +257,7 @@ fn spawn_input_widget(
                 fonts.deja_vu_sans.clone(),
                 parent,
                 color,
-                node_index,
-                input_id,
+                input_port,
             );
             commands.entity(parent).add_child(widget);
         }
@@ -259,8 +271,7 @@ fn spawn_output_widget(
     fonts: &Res<FontAssets>,
     parent: Entity,
     field: Field,
-    output_id: OutputId,
-    node_index: NodeIndex,
+    output_port: Entity,
 ) {
     match field {
         Field::LinearRgba(color) => {
@@ -269,8 +280,7 @@ fn spawn_output_widget(
                 fonts.deja_vu_sans.clone(),
                 parent,
                 color,
-                node_index,
-                output_id,
+                output_port,
             );
             commands.entity(parent).add_child(widget);
         }
@@ -294,8 +304,7 @@ impl LinearRgbaInputWidget {
         font: Handle<Font>,
         parent: Entity,
         value: LinearRgba,
-        node_index: NodeIndex,
-        input_id: InputId,
+        input_port: Entity,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
@@ -353,10 +362,7 @@ impl LinearRgbaInputWidget {
                 border_radius: BorderRadius::all(Val::Px(10.0)),
                 ..default()
             })
-            .insert(InputPortVisibilityToggle {
-                node_index,
-                input_id,
-            })
+            .insert(InputPortVisibilityToggle { input_port })
             .id();
 
         let red = spawn_color_input(commands, font_system, font.clone(), "R", value.red);
@@ -397,8 +403,7 @@ impl LinearRgbaOutputWidget {
         font: Handle<Font>,
         parent: Entity,
         value: LinearRgba,
-        node_index: NodeIndex,
-        output_id: OutputId,
+        output_port: Entity,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
@@ -455,10 +460,7 @@ impl LinearRgbaOutputWidget {
                 background_color: GREEN.into(),
                 ..default()
             })
-            .insert(OutputPortVisibilityToggle {
-                node_index,
-                output_id,
-            })
+            .insert(OutputPortVisibilityToggle { output_port })
             .id();
 
         let color_display = commands
@@ -597,24 +599,52 @@ fn toggle_input_port_visibility(
     q_toggles: Query<&InputPortVisibilityToggle>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut visibility_events: EventWriter<InputPortVisibilityChanged>,
+    q_input_ports: Query<&InputPort>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
+    mut undoable_events: EventWriter<UndoableEvent>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
             if let Ok(toggle) = q_toggles.get(event.target) {
                 let mut pipeline = q_pipeline.single_mut();
-                if let Some(node) = pipeline.graph.node_weight_mut(toggle.node_index) {
-                    if let Some(meta) = node.get_input_meta(toggle.input_id) {
+                let port = q_input_ports.get(toggle.input_port).unwrap();
+
+                if let Some(node) = pipeline.graph.node_weight_mut(port.node_index) {
+                    if let Some(meta) = node.get_input_meta(port.input_id) {
                         let new_visible = !meta.visible;
                         let new_meta = FieldMeta {
                             visible: new_visible,
                             ..meta.clone()
                         };
-                        node.set_input_meta(toggle.input_id, new_meta);
+                        node.set_input_meta(port.input_id, new_meta);
 
                         visibility_events.send(InputPortVisibilityChanged {
-                            node_index: toggle.node_index,
-                            input_id: toggle.input_id,
+                            input_port: toggle.input_port,
                         });
+
+                        // Send remove edge events if the port is now hidden
+                        if !new_visible {
+                            for edge in pipeline
+                                .graph
+                                .edges_directed(port.node_index, Direction::Incoming)
+                            {
+                                if edge.weight().to_field == port.input_id {
+                                    if let Some((output_entity, _)) =
+                                        q_output_ports.iter().find(|(_, out_port)| {
+                                            out_port.node_index == edge.source()
+                                                && out_port.output_id == edge.weight().from_field
+                                        })
+                                    {
+                                        undoable_events.send(UndoableEvent::RemoveEdge(
+                                            RemoveEdgeEvent {
+                                                start_port: output_entity,
+                                                end_port: toggle.input_port,
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -627,24 +657,52 @@ fn toggle_output_port_visibility(
     q_toggles: Query<&OutputPortVisibilityToggle>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut visibility_events: EventWriter<OutputPortVisibilityChanged>,
+    q_output_ports: Query<&OutputPort>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    mut undoable_events: EventWriter<UndoableEvent>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
             if let Ok(toggle) = q_toggles.get(event.target) {
                 let mut pipeline = q_pipeline.single_mut();
-                if let Some(node) = pipeline.graph.node_weight_mut(toggle.node_index) {
-                    if let Some(meta) = node.get_output_meta(toggle.output_id) {
+                let port = q_output_ports.get(toggle.output_port).unwrap();
+
+                if let Some(node) = pipeline.graph.node_weight_mut(port.node_index) {
+                    if let Some(meta) = node.get_output_meta(port.output_id) {
                         let new_visible = !meta.visible;
                         let new_meta = FieldMeta {
                             visible: new_visible,
                             ..meta.clone()
                         };
-                        node.set_output_meta(toggle.output_id, new_meta);
+                        node.set_output_meta(port.output_id, new_meta);
 
                         visibility_events.send(OutputPortVisibilityChanged {
-                            node_index: toggle.node_index,
-                            output_id: toggle.output_id,
+                            output_port: toggle.output_port,
                         });
+
+                        // Send remove edge events if the port is now hidden
+                        if !new_visible {
+                            for edge in pipeline
+                                .graph
+                                .edges_directed(port.node_index, Direction::Outgoing)
+                            {
+                                if edge.weight().from_field == port.output_id {
+                                    if let Some((input_entity, _)) =
+                                        q_input_ports.iter().find(|(_, in_port)| {
+                                            in_port.node_index == edge.target()
+                                                && in_port.input_id == edge.weight().to_field
+                                        })
+                                    {
+                                        undoable_events.send(UndoableEvent::RemoveEdge(
+                                            RemoveEdgeEvent {
+                                                start_port: toggle.output_port,
+                                                end_port: input_entity,
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

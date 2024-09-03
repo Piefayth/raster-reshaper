@@ -28,10 +28,13 @@ impl Plugin for GraphPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (poll_processed_pipeline).run_if(in_state(ApplicationState::MainLoop)),
+            (poll_processed_pipeline, process_pipeline).chain().run_if(in_state(ApplicationState::MainLoop)),
         )
-        .observe(process_pipeline)
         .observe(update_nodes);
+
+    
+        app.add_event::<RequestProcessPipeline>();
+        
     }
 }
 
@@ -128,104 +131,106 @@ fn poll_processed_pipeline(
 
 // Begin a new evaluation of all the nodes in the graph
 fn process_pipeline(
-    _trigger: Trigger<RequestProcessPipeline>,
+    mut event_reader: EventReader<RequestProcessPipeline>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_task: Query<Entity, With<PipelineProcessTask>>,
     render_device: Res<CustomGpuDevice>,
     render_queue: Res<CustomGpuQueue>,
 ) {
-    if q_pipeline.is_empty() {
-        return;
-    }
-
-    let pipeline = q_pipeline.single();
-
-    for task_entity in q_task.iter_mut() {
-        // attempt to cancel now-invalid (due to graph change) in-flight tasks. we are gonna replace it w/ a new one
-        // dropping the task should cancel it, assuming it's properly async...
-
-        commands.entity(task_entity).despawn();
-    }
-
-    let thread_pool = AsyncComputeTaskPool::get();
-
-    let graph_copy = pipeline.graph.clone();
-
-    let graph_processing_work = async move {
-        let mut unprocessed_nodes: HashSet<NodeIndex> = graph_copy.node_indices().collect();
-        let mut in_flight_nodes: HashSet<NodeIndex> = HashSet::new();
-        let nodes_to_process: Vec<ProcessNode> =
-            get_processible_nodes(&graph_copy, &unprocessed_nodes, &in_flight_nodes);
-        let mut results: HashMap<NodeIndex, ProcessNode> = HashMap::new();
-
-        let mut subtasks: Vec<BoxFuture<'static, ProcessNode>> = Vec::new();
-
-        for node in nodes_to_process.into_iter() {
-            in_flight_nodes.insert(node.index);
-            let subtask = process_node(node).boxed();
-            subtasks.push(subtask);
+    if event_reader.read().next().is_some() {
+        if q_pipeline.is_empty() {
+            return;
         }
 
-        while !subtasks.is_empty() {
-            // Await the first subtask to complete
-            let result = if subtasks.len() == 1 {
-                // Only one task left, no need to use select_all
-                subtasks.pop().unwrap().await
-            } else {
-                let (result, _index, remaining) = select_all(subtasks).await;
-                subtasks = remaining;
-                result
-            };
+        let pipeline = q_pipeline.single();
 
-            // TODO: Take the finished 'result' and send it back to main thread early
-            // rather than waiting for the entire graph to complete
-            // but don't bother until it's noticably annoying that you dont do this (i.e. until partial completion actually matters to the UX)
+        for task_entity in q_task.iter_mut() {
+            // attempt to cancel now-invalid (due to graph change) in-flight tasks. we are gonna replace it w/ a new one
+            // dropping the task should cancel it, assuming it's properly async...
 
-            let result_idx = result.index.clone();
-            results.insert(result_idx, result);
-            in_flight_nodes.remove(&result_idx);
-            unprocessed_nodes.remove(&result_idx);
+            commands.entity(task_entity).despawn();
+        }
 
-            // Add any new node processing tasks for nodes that now have resolved dependencies
-            let new_nodes_to_process =
+        let thread_pool = AsyncComputeTaskPool::get();
+
+        let graph_copy = pipeline.graph.clone();
+
+        let graph_processing_work = async move {
+            let mut unprocessed_nodes: HashSet<NodeIndex> = graph_copy.node_indices().collect();
+            let mut in_flight_nodes: HashSet<NodeIndex> = HashSet::new();
+            let nodes_to_process: Vec<ProcessNode> =
                 get_processible_nodes(&graph_copy, &unprocessed_nodes, &in_flight_nodes);
-            for node in new_nodes_to_process.into_iter() {
+            let mut results: HashMap<NodeIndex, ProcessNode> = HashMap::new();
+
+            let mut subtasks: Vec<BoxFuture<'static, ProcessNode>> = Vec::new();
+
+            for node in nodes_to_process.into_iter() {
                 in_flight_nodes.insert(node.index);
-
-                let node_dependencies = graph_copy.edges_directed(node.index, Direction::Incoming);
-
-                let mut node_with_resolved_dependencies = node.clone();
-
-                for edge in node_dependencies {
-                    // Use the post-process version of the dependency node, since the entry in graph itself isn't updated yet
-                    let from = results
-                        .get(&edge.source())
-                        .expect("Tried to depend on a node that hasn't been processed yet.");
-                    let edge_data = edge.weight();
-
-                    // Update the dependant node
-                    let _ = node_with_resolved_dependencies.node.set_input(
-                        edge_data.to_field,
-                        from.node.get_output(edge_data.from_field).unwrap(),
-                    );
-                }
-
-                let subtask = process_node(node_with_resolved_dependencies).boxed();
-
+                let subtask = process_node(node).boxed();
                 subtasks.push(subtask);
             }
-        }
 
-        let mut results_vec = Vec::with_capacity(results.len());
-        results
-            .into_iter()
-            .for_each(|(_index, process_node)| results_vec.push(process_node));
-        results_vec
-    };
+            while !subtasks.is_empty() {
+                // Await the first subtask to complete
+                let result = if subtasks.len() == 1 {
+                    // Only one task left, no need to use select_all
+                    subtasks.pop().unwrap().await
+                } else {
+                    let (result, _index, remaining) = select_all(subtasks).await;
+                    subtasks = remaining;
+                    result
+                };
 
-    let task = thread_pool.spawn(graph_processing_work);
-    commands.spawn(PipelineProcessTask(task));
+                // TODO: Take the finished 'result' and send it back to main thread early
+                // rather than waiting for the entire graph to complete
+                // but don't bother until it's noticably annoying that you dont do this (i.e. until partial completion actually matters to the UX)
+
+                let result_idx = result.index.clone();
+                results.insert(result_idx, result);
+                in_flight_nodes.remove(&result_idx);
+                unprocessed_nodes.remove(&result_idx);
+
+                // Add any new node processing tasks for nodes that now have resolved dependencies
+                let new_nodes_to_process =
+                    get_processible_nodes(&graph_copy, &unprocessed_nodes, &in_flight_nodes);
+                for node in new_nodes_to_process.into_iter() {
+                    in_flight_nodes.insert(node.index);
+
+                    let node_dependencies = graph_copy.edges_directed(node.index, Direction::Incoming);
+
+                    let mut node_with_resolved_dependencies = node.clone();
+
+                    for edge in node_dependencies {
+                        // Use the post-process version of the dependency node, since the entry in graph itself isn't updated yet
+                        let from = results
+                            .get(&edge.source())
+                            .expect("Tried to depend on a node that hasn't been processed yet.");
+                        let edge_data = edge.weight();
+
+                        // Update the dependant node
+                        let _ = node_with_resolved_dependencies.node.set_input(
+                            edge_data.to_field,
+                            from.node.get_output(edge_data.from_field).unwrap(),
+                        );
+                    }
+
+                    let subtask = process_node(node_with_resolved_dependencies).boxed();
+
+                    subtasks.push(subtask);
+                }
+            }
+
+            let mut results_vec = Vec::with_capacity(results.len());
+            results
+                .into_iter()
+                .for_each(|(_index, process_node)| results_vec.push(process_node));
+            results_vec
+        };
+
+        let task = thread_pool.spawn(graph_processing_work);
+        commands.spawn(PipelineProcessTask(task));
+    }
 }
 
 async fn process_node(mut p_node: ProcessNode) -> ProcessNode {

@@ -150,6 +150,7 @@ fn delete_node(
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     // so this node might be part of a selection
     // if it is, we delete the entire selection
@@ -180,7 +181,7 @@ fn delete_node(
 
     commands.entity(trigger.event().node).despawn_recursive();
 
-    commands.trigger(RequestProcessPipeline);
+    ev_process_pipeline.send(RequestProcessPipeline);
 }
 
 // Moves the target node in front of all other nodes
@@ -578,6 +579,7 @@ fn add_edge(
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_input_ports: Query<(&GlobalTransform, &InputPort)>,
     q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
@@ -625,7 +627,7 @@ fn add_edge(
                     ));
 
                     // Trigger pipeline process
-                    commands.trigger(RequestProcessPipeline);
+                    ev_process_pipeline.send(RequestProcessPipeline);
                 }
                 Err(e) => {
                     println!("Error adding edge: {}", e);
@@ -644,6 +646,7 @@ fn remove_edge(
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<&OutputPort>,
     q_edges: Query<(Entity, &EdgeLine)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
@@ -671,7 +674,7 @@ fn remove_edge(
                 }
 
                 // Trigger pipeline process
-                commands.trigger(RequestProcessPipeline);
+                ev_process_pipeline.send(RequestProcessPipeline);
             } else {
                 println!("Error: Could not find edge to remove in the graph");
             }
@@ -698,6 +701,7 @@ fn spawn_requested_node(
     fonts: Res<FontAssets>,
     mut input_visibility_events: EventWriter<InputPortVisibilityChanged>,
     mut output_visibility_events: EventWriter<OutputPortVisibilityChanged>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let (camera, camera_transform) = camera_query.single();
@@ -789,7 +793,7 @@ fn spawn_requested_node(
             });
             // Spawn input ports
             for input_id in node.input_fields() {
-                InputPort::spawn(
+                let input_port = InputPort::spawn(
                     child_builder,
                     &node,
                     spawned_node_index,
@@ -798,12 +802,12 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                input_visibility_events.send(InputPortVisibilityChanged { node_index: spawned_node_index, input_id: *input_id });
+                input_visibility_events.send(InputPortVisibilityChanged { input_port });
             }
 
             // Spawn output ports
             for output_id in node.output_fields() {
-                OutputPort::spawn(
+                let output_port = OutputPort::spawn(
                     child_builder,
                     &node,
                     spawned_node_index,
@@ -812,13 +816,13 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                output_visibility_events.send(OutputPortVisibilityChanged { node_index: spawned_node_index, output_id: *output_id });
+                output_visibility_events.send(OutputPortVisibilityChanged { output_port });
             }
         });
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
-    commands.trigger(RequestProcessPipeline);
+    ev_process_pipeline.send(RequestProcessPipeline);
 }
 
 
@@ -834,6 +838,7 @@ fn detatch_input(
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_input_ports: Query<(Entity, &InputPort)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let target_node = trigger.event().node;
@@ -862,7 +867,7 @@ fn detatch_input(
             }
 
             // Trigger pipeline process to update the graph
-            commands.trigger(RequestProcessPipeline);
+            ev_process_pipeline.send(RequestProcessPipeline);
         }
     } else {
         println!("Error: Could not find the target input port");
@@ -881,6 +886,7 @@ fn detatch_output(
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let target_node = trigger.event().node;
@@ -918,7 +924,7 @@ fn detatch_output(
 
         // Trigger pipeline process to update the graph
         if !edges_to_remove.is_empty() {
-            commands.trigger(RequestProcessPipeline);
+            ev_process_pipeline.send(RequestProcessPipeline);
         }
     } else {
         println!("Error: Could not find the target output port");

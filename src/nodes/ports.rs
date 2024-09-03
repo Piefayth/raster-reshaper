@@ -32,14 +32,12 @@ impl Plugin for PortPlugin {
 
 #[derive(Event)]
 pub struct InputPortVisibilityChanged {
-    pub node_index: NodeIndex,
-    pub input_id: InputId,
+    pub input_port: Entity,
 }
 
 #[derive(Event)]
 pub struct OutputPortVisibilityChanged {
-    pub node_index: NodeIndex,
-    pub output_id: OutputId,
+    pub output_port: Entity,
 }
 
 #[derive(Component)]
@@ -348,16 +346,19 @@ pub fn reposition_input_ports(
     mut events: EventReader<InputPortVisibilityChanged>,
     mut query: Query<(&mut Transform, &mut Visibility, &InputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
+    q_input_ports: Query<&InputPort>,
 ) {
     let pipeline = pipeline_query.single();
     for event in events.read() {
-        if let Some(node) = pipeline.graph.node_weight(event.node_index) {
+        let input_port = q_input_ports.get(event.input_port).unwrap();
+
+        if let Some(node) = pipeline.graph.node_weight(input_port.node_index) {
             let port_group_vertical_margin = 36.;
             let visible_inputs: Vec<_> = node.input_fields().iter()
                 .filter(|&&id| node.get_input_meta(id).unwrap().visible)
                 .collect();
 
-            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == event.node_index) {
+            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == input_port.node_index) {
                 let meta = node.get_input_meta(port.input_id).unwrap();
                 if meta.visible {
                     let index = visible_inputs.iter().position(|&&id| id == port.input_id).unwrap_or(0);
@@ -379,16 +380,19 @@ pub fn reposition_output_ports(
     mut events: EventReader<OutputPortVisibilityChanged>,
     mut query: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
+    q_output_ports: Query<&OutputPort>,
 ) {
     let pipeline = pipeline_query.single();
     for event in events.read() {
-        if let Some(node) = pipeline.graph.node_weight(event.node_index) {
+        let output_port = q_output_ports.get(event.output_port).unwrap();
+
+        if let Some(node) = pipeline.graph.node_weight(output_port.node_index) {
             let port_group_vertical_margin = 36.;
             let visible_outputs: Vec<_> = node.output_fields().iter()
                 .filter(|&&id| node.get_output_meta(id).unwrap().visible)
                 .collect();
 
-            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == event.node_index) {
+            for (mut transform, mut visibility, port) in query.iter_mut().filter(|(_, _, p)| p.node_index == output_port.node_index) {
                 let meta = node.get_output_meta(port.output_id).unwrap();
                 if meta.visible {
                     let index = visible_outputs.iter().position(|&&id| id == port.output_id).unwrap_or(0);
