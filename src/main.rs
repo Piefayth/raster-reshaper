@@ -10,6 +10,7 @@ mod setup;
 mod ui;
 mod camera;
 mod line_renderer;
+mod events;
 
 fn main() {
     App::new()
@@ -20,6 +21,7 @@ fn main() {
         .add_plugins(ui::UiPlugin)
         .add_plugins(nodes::NodePlugin)
         .add_plugins(camera::CameraPlugin)
+        .add_plugins(events::EventsPlugin)
         .add_plugins(LineRenderingPlugin)
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)

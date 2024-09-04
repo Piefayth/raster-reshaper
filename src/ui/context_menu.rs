@@ -7,6 +7,7 @@ use bevy::{
     input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
     window::PrimaryWindow,
+    ui::Direction as UIDirection,
 };
 use bevy_mod_picking::{
     events::{Click, Down, Out, Over, Pointer, Up},
@@ -14,11 +15,9 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
     PickableBundle,
 };
-use petgraph::{graph::NodeIndex};
+use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
 use crate::{
-    asset::FontAssets,
-    nodes::{RequestDeleteNode, RequestDetatchInput, RequestDetatchOutput, RequestSpawnNode, RequestSpawnNodeKind},
-    ApplicationState,
+    asset::FontAssets, events::{RemoveEdgeEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, OutputId, RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind}, ApplicationState
 };
 
 use super::{Spawner, UIContext, UiRoot};
@@ -38,6 +37,8 @@ impl Plugin for ContextMenuPlugin {
         );
 
         app.observe(on_made_any_context_menu_selection);
+        app.observe(detatch_input);
+        app.observe(detatch_output);
     }
 }
 
@@ -370,6 +371,93 @@ pub fn highlight_selection(
                     commands.entity(entity).remove::<BackgroundColor>();
                 }
             }
+        }
+    }
+}
+
+#[derive(Event, Clone)]
+pub struct RequestDetatchInput {
+    pub node: NodeIndex,
+    pub port: InputId,
+}
+
+fn detatch_input(
+    trigger: Trigger<RequestDetatchInput>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
+    mut undoable_events: EventWriter<UndoableEventGroup>,
+) {
+    let pipeline = q_pipeline.single();
+    let target_node = trigger.event().node;
+    let target_port = trigger.event().port;
+
+    if let Some((target_port_entity, _)) = q_input_ports
+        .iter()
+        .find(|(_, port)| port.node_index == target_node && port.input_id == target_port)
+    {
+        if let Some(edge) = pipeline
+            .graph
+            .edges_directed(target_node, Direction::Incoming)
+            .find(|edge| edge.weight().to_field == target_port)
+        {
+            if let Some((output_port_entity, _)) = q_output_ports.iter().find(|(_, port)| {
+                port.node_index == edge.source() && port.output_id == edge.weight().from_field
+            }) {
+                undoable_events.send(UndoableEventGroup::from_event(RemoveEdgeEvent {
+                    start_port: output_port_entity,
+                    end_port: target_port_entity,
+                }));
+            }
+        }
+    }
+}
+
+#[derive(Event, Clone)]
+pub struct RequestDetatchOutput {
+    pub node: NodeIndex,
+    pub port: OutputId,
+}
+
+fn detatch_output(
+    trigger: Trigger<RequestDetatchOutput>,
+    q_pipeline: Query<&DisjointPipelineGraph>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    mut undoable_events: EventWriter<UndoableEventGroup>,
+) {
+    let pipeline = q_pipeline.single();
+    let target_node = trigger.event().node;
+    let target_port = trigger.event().port;
+
+    if let Some((target_port_entity, _)) = q_output_ports
+        .iter()
+        .find(|(_, port)| port.node_index == target_node && port.output_id == target_port)
+    {
+        let mut events = Vec::new();
+
+        for edge in pipeline
+            .graph
+            .edges_directed(target_node, Direction::Outgoing)
+        {
+            if edge.weight().from_field == target_port {
+                if let Some((input_entity, _)) = q_input_ports.iter().find(|(_, in_port)| {
+                    in_port.node_index == edge.target()
+                        && in_port.input_id == edge.weight().to_field
+                }) {
+                    events.push(
+                        RemoveEdgeEvent {
+                            start_port: target_port_entity,
+                            end_port: input_entity,
+                        }
+                        .into(),
+                    );
+                }
+            }
+        }
+
+        if !events.is_empty() {
+            undoable_events.send(UndoableEventGroup { events });
         }
     }
 }

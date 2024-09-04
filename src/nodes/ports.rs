@@ -1,19 +1,13 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS},
-    camera::MainCamera,
-    graph::DisjointPipelineGraph,
-    line_renderer::Line,
-    ui::{
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{AddEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
         inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch},
         InputPortContext, OutputPortContext, Spawner, UIContext,
-    },
-    ApplicationState,
+    }, ApplicationState
 };
 
 use super::{
     fields::{Field, FieldMeta},
-    AddEdgeEvent, GraphNode, InputId, NodeTrait, OutputId, SetInputVisibilityEvent,
-    SetOutputVisibilityEvent, UndoableEvent, UndoableEventGroup,
+    GraphNode, InputId, NodeTrait, OutputId,
 };
 use bevy::{
     color::palettes::{
