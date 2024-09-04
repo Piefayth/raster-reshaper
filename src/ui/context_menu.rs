@@ -20,7 +20,7 @@ use crate::{
     asset::FontAssets, events::{RemoveEdgeEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, OutputId, RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind}, ApplicationState
 };
 
-use super::{Spawner, UIContext, UiRoot};
+use super::{Spawner, UiRoot};
 
 pub struct ContextMenuPlugin;
 
@@ -40,6 +40,29 @@ impl Plugin for ContextMenuPlugin {
         app.observe(detatch_input);
         app.observe(detatch_output);
     }
+}
+
+// The different kinds of data that power the different kinds of context menu
+//  that show up based on which element was clicked.
+#[derive(Component, Debug)]
+pub enum UIContext {
+    NodeEditArea,
+    Inspector,
+    Node(Entity),
+    InputPort(InputPortContext),
+    OutputPort(OutputPortContext),
+}
+
+#[derive(Debug)]
+pub struct InputPortContext {
+    pub node: NodeIndex,
+    pub port: InputId,
+}
+
+#[derive(Debug)]
+pub struct OutputPortContext {
+    pub node: NodeIndex,
+    pub port: OutputId,
 }
 
 #[derive(Component)]

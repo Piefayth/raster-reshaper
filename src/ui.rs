@@ -9,7 +9,7 @@ use bevy::{
 };
 use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem, CosmicSource, FocusedWidget};
 use bevy_mod_picking::{events::{Down, Pointer}, prelude::Pickable};
-use context_menu::ContextMenuPlugin;
+use context_menu::{ContextMenuPlugin, UIContext};
 use inspector::{InspectorPanel, InspectorPlugin};
 use petgraph::graph::NodeIndex;
 
@@ -63,26 +63,7 @@ impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
     }
 }
 
-#[derive(Component, Debug)]
-pub enum UIContext {
-    NodeEditArea,
-    Inspector,
-    Node(Entity),
-    InputPort(InputPortContext),
-    OutputPort(OutputPortContext),
-}
 
-#[derive(Debug)]
-pub struct InputPortContext {
-    pub node: NodeIndex,
-    pub port: InputId,
-}
-
-#[derive(Debug)]
-pub struct OutputPortContext {
-    pub node: NodeIndex,
-    pub port: OutputId,
-}
 
 #[derive(Component)]
 pub struct UiRoot;

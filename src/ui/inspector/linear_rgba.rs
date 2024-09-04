@@ -1,8 +1,30 @@
 use bevy::prelude::*;
 use bevy_cosmic_edit::{Attrs, ColorExtras, CosmicBackgroundColor, CosmicBuffer, CosmicEditBundle, CosmicFontSystem, CosmicSource, CosmicWrap, CursorColor, MaxLines, Metrics, ScrollDisabled, SelectionColor};
 
+use crate::nodes::InputId;
+
+use super::float_input::{FloatInputWidget, RequestUpdateFloatInput};
+
+pub struct LinearRgbaPlugin;
+
+impl Plugin for LinearRgbaPlugin {
+    fn build(&self, app: &mut App) {
+        app.observe(update_linear_rgba_input);
+    }
+}
+
+#[derive(Event)]
+pub struct RequestUpdateLinearRgbaInput {
+    pub value: LinearRgba,
+    pub widget_entity: Entity,
+}
+
+
 #[derive(Component)]
 pub struct LinearRgbaInputWidget {
+    pub node: Entity,
+    pub input_id: InputId,
+
     pub red: Entity,
     pub green: Entity,
     pub blue: Entity,
@@ -15,6 +37,8 @@ impl LinearRgbaInputWidget {
         font_system: &mut CosmicFontSystem,
         font: Handle<Font>,
         parent: Entity,
+        node: Entity,
+        input_id: InputId,
         value: LinearRgba,
     ) -> Entity {
         let widget_entity = commands
@@ -31,15 +55,17 @@ impl LinearRgbaInputWidget {
             })
             .id();
 
-        let red = spawn_color_input(commands, font_system, font.clone(), "R", value.red);
-        let green = spawn_color_input(commands, font_system, font.clone(), "G", value.green);
-        let blue = spawn_color_input(commands, font_system, font.clone(), "B", value.blue);
-        let alpha = spawn_color_input(commands, font_system, font.clone(), "A", value.alpha);
-
+        let red = FloatInputWidget::spawn(commands, font_system, font.clone(), "R", value.red);
+        let green = FloatInputWidget::spawn(commands, font_system, font.clone(), "G", value.green);
+        let blue = FloatInputWidget::spawn(commands, font_system, font.clone(), "B", value.blue);
+        let alpha = FloatInputWidget::spawn(commands, font_system, font.clone(), "A", value.alpha);
+    
         commands
             .entity(widget_entity)
             .push_children(&[red, green, blue, alpha])
             .insert(LinearRgbaInputWidget {
+                node,
+                input_id,
                 red,
                 green,
                 blue,
@@ -50,6 +76,35 @@ impl LinearRgbaInputWidget {
 
         widget_entity
     }
+}
+
+fn update_linear_rgba_input(
+    trigger: Trigger<RequestUpdateLinearRgbaInput>,
+    mut commands: Commands,
+    q_linear_rgba_in: Query<&LinearRgbaInputWidget>,
+) {
+    if let Ok(linear_rgba) = q_linear_rgba_in.get(trigger.event().widget_entity) {
+        commands.trigger(RequestUpdateFloatInput {
+            widget_entity: linear_rgba.red,
+            value: trigger.event().value.red
+        });
+
+        commands.trigger(RequestUpdateFloatInput {
+            widget_entity: linear_rgba.blue,
+            value: trigger.event().value.blue
+        });
+
+        commands.trigger(RequestUpdateFloatInput {
+            widget_entity: linear_rgba.green,
+            value: trigger.event().value.green
+        });
+
+        commands.trigger(RequestUpdateFloatInput {
+            widget_entity: linear_rgba.alpha,
+            value: trigger.event().value.alpha
+        });
+    }
+
 }
 
 #[derive(Component)]
@@ -114,89 +169,4 @@ impl LinearRgbaOutputWidget {
 
         widget_entity
     }
-}
-
-fn spawn_color_input(
-    commands: &mut Commands,
-    font_system: &mut CosmicFontSystem,
-    font: Handle<Font>,
-    label: &str,
-    value: f32,
-) -> Entity {
-    let attrs = Attrs::new().color(Color::WHITE.to_cosmic());
-
-    let cosmic_edit = commands
-        .spawn((
-            CosmicEditBundle {
-                buffer: CosmicBuffer::new(font_system, Metrics::new(14., 14.)).with_text(
-                    font_system,
-                    &format!("{:.2}", value),
-                    attrs,
-                ),
-                max_lines: MaxLines(1),
-                cursor_color: CursorColor(Color::srgba(0.5, 0.5, 0.5, 1.0).into()),
-                selection_color: SelectionColor(Color::srgba(0.3, 0.3, 0.7, 1.0).into()),
-                fill_color: CosmicBackgroundColor(Color::srgba(0.1, 0.1, 0.1, 1.0).into()),
-                mode: CosmicWrap::Wrap,
-                ..default()
-            },
-            Style {
-                display: Display::None,
-                ..default()
-            },
-            Node::DEFAULT,
-        ))
-        .id();
-
-    let input_row = commands
-        .spawn(NodeBundle {
-            style: Style {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                margin: UiRect::vertical(Val::Px(2.0)),
-                ..default()
-            },
-            ..default()
-        })
-        .with_children(|parent| {
-            // Label
-            parent
-                .spawn(TextBundle::from_section(
-                    format!("{}: ", label),
-                    TextStyle {
-                        font: font.clone(),
-                        font_size: 14.0,
-                        color: Color::WHITE,
-                        ..default()
-                    },
-                ))
-                .insert(Style {
-                    margin: UiRect::right(Val::Px(5.0)),
-                    ..default()
-                });
-
-            // Input field
-            parent
-                .spawn(ButtonBundle {
-                    style: Style {
-                        flex_grow: 1.,
-                        flex_shrink: 1.,
-                        flex_basis: Val::Auto,
-                        height: Val::Px(20.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    background_color: Color::srgba(0.2, 0.2, 0.2, 1.0).into(),
-                    ..default()
-                })
-                .insert(CosmicSource(cosmic_edit))
-                .insert(ScrollDisabled);
-        })
-        .id();
-
-    commands.entity(input_row).add_child(cosmic_edit);
-
-    input_row
 }

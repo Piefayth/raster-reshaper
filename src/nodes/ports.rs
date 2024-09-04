@@ -1,7 +1,6 @@
 use crate::{
     asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{AddEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
-        inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch},
-        InputPortContext, OutputPortContext, Spawner, UIContext,
+        context_menu::{InputPortContext, OutputPortContext, UIContext}, inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch}, Spawner
     }, ApplicationState
 };
 

@@ -13,7 +13,8 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
 };
 use field_heading::FieldHeadingWidget;
-use linear_rgba::{LinearRgbaInputWidget, LinearRgbaOutputWidget};
+use float_input::FloatInputPlugin;
+use linear_rgba::{LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, RequestUpdateLinearRgbaInput};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::StableDiGraph,
@@ -23,7 +24,7 @@ use petgraph::{
 
 use crate::{
     asset::FontAssets,
-    graph::{DisjointPipelineGraph, Edge},
+    graph::{DisjointPipelineGraph, Edge, GraphWasUpdated},
     nodes::{
         fields::{Field, FieldMeta},
         ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout},
@@ -36,11 +37,16 @@ use super::{Spawner, UIContext};
 
 pub mod linear_rgba;
 pub mod field_heading;
+pub mod float_input;
 
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins((
+            FloatInputPlugin,
+            LinearRgbaPlugin,
+        ));
         app.add_systems(
             Update,
             (
@@ -50,6 +56,8 @@ impl Plugin for InspectorPlugin {
             )
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
+
+        app.observe(trigger_inspector_updates);
     }
 }
 
@@ -61,6 +69,7 @@ struct InspectorSection {
 #[derive(Component)]
 pub struct InspectorPanel {
     displayed_nodes: HashSet<Entity>,
+
 }
 
 #[derive(Component)]
@@ -199,6 +208,7 @@ fn on_node_selection_changed(
                                         &fonts,
                                         section_entity,
                                         field,
+                                        selected_entity,
                                         input_id,
                                         input_port,
                                         is_visible,
@@ -249,6 +259,49 @@ fn on_node_selection_changed(
     }
 }
 
+fn trigger_inspector_updates(
+    _trigger: Trigger<GraphWasUpdated>,
+    mut commands: Commands,
+    q_graph: Query<&DisjointPipelineGraph>,
+    q_inspector_panel: Query<&InspectorPanel>,
+    q_node_displays: Query<&NodeDisplay>,
+    q_linear_rgba_inputs: Query<(Entity, &LinearRgbaInputWidget)>,
+) {
+    let graph = &q_graph.single().graph;
+
+    if let Ok(panel) = q_inspector_panel.get_single() {
+        for &node_entity in panel.displayed_nodes.iter() {  // for every node shown in inspector
+            if let Ok(node_display) = q_node_displays.get(node_entity) {
+                let node = graph.node_weight(node_display.index).unwrap();
+                let node_fields = node.input_fields();
+
+                for input_id in node_fields {
+                    let field = node.get_input(*input_id).unwrap();
+                    match field {
+                        Field::U32(_) => {},
+                        Field::F32(_) => {},
+                        Field::Vec4(_) => {},
+                        Field::LinearRgba(lrgba_value) => {
+                            q_linear_rgba_inputs.iter().for_each(|(lrgba_entity, lrgba_widget)| {
+                                if lrgba_widget.node == node_entity {
+                                    commands.trigger(RequestUpdateLinearRgbaInput {
+                                        value: lrgba_value,
+                                        widget_entity: lrgba_entity,
+                                    });
+                                }
+                            });
+                        },
+                        Field::Extent3d(_) => {},
+                        Field::TextureFormat(_) => {},
+                        Field::Image(_) => {},
+                    };
+                }
+
+            }
+        }
+    }
+}
+
 fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res<FontAssets>) {
     let header_entity = commands
         .spawn(TextBundle::from_section(
@@ -276,6 +329,7 @@ fn spawn_input_widget(
     fonts: &Res<FontAssets>,
     parent: Entity,
     field: Field,
+    node: Entity,
     input_id: InputId,
     input_port: Entity,
     is_visible: bool,
@@ -298,6 +352,8 @@ fn spawn_input_widget(
                 font_system,
                 fonts.deja_vu_sans.clone(),
                 parent,
+                node,
+                input_id,
                 color,
             );
             commands.entity(parent).add_child(widget);

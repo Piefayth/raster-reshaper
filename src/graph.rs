@@ -80,7 +80,7 @@ fn update_nodes(
 
         match probably_node {
             Ok((mut node_display, material_handle)) => {
-                node_display.index = idx; // The NodeIndex could've changed if the graph was modified.
+                node_display.index = idx; // The NodeIndex could've changed if the graph was modified...is that still true with the stable graph? i think no UNLESS we start preserving index across undo/redo
 
                 let material = materials.get_mut(material_handle.id()).unwrap();
                 let old_image = images.get_mut(material.node_texture.id()).expect(

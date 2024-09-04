@@ -8,13 +8,7 @@ use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
         NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    },
-    camera::MainCamera,
-    graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
-    line_renderer::{generate_color_gradient, generate_curved_line, Line},
-    setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue},
-    ui::{InputPortContext, OutputPortContext, UIContext},
-    ApplicationState,
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
 };
 use bevy::{
     color::palettes::{
@@ -423,11 +417,6 @@ fn update_node_border(
         }
     }
 }
-
-// Anything that can be undone must be wrapped and sent in an Undoable event
-// handle_undoable acts as an event bus, pushing new actions onto the undo stack and dispatching the underlying events
-// the unwrapped events are not intended to be dispatched individually by systems
-
 
 fn spawn_requested_node(
     trigger: Trigger<RequestSpawnNode>,
