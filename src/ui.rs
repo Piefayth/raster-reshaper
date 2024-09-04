@@ -20,7 +20,7 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        let font_bytes: &[u8] = include_bytes!("../../assets/fonts/DejaVuSans.ttf");
+        let font_bytes: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf");
         let font_config = CosmicFontConfig {
             fonts_dir_path: None,
             font_bytes: Some(vec![font_bytes]),

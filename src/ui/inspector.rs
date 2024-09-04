@@ -33,6 +33,8 @@ use crate::{
 
 use super::{Spawner, UIContext};
 
+pub mod linear_rgba;
+
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
