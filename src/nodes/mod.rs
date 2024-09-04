@@ -101,10 +101,10 @@ pub struct NodeDisplay {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct InputId(&'static str, &'static str);
+pub struct InputId(pub &'static str, pub &'static str);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct OutputId(&'static str, &'static str);
+pub struct OutputId(pub &'static str, pub &'static str);
 
 pub trait NodeTrait {
     fn get_input(&self, id: InputId) -> Option<Field>;
@@ -914,6 +914,7 @@ pub struct RequestDetatchInput {
 }
 // do systems that react to ui events go somewhere specific?
 // do they use triggers?
+
 fn detatch_input(
     trigger: Trigger<RequestDetatchInput>,
     q_pipeline: Query<&DisjointPipelineGraph>,

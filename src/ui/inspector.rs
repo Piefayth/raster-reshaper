@@ -195,6 +195,7 @@ fn on_node_selection_changed(
                                         &fonts,
                                         section_entity,
                                         field,
+                                        input_id,
                                         input_port,
                                         is_visible,
                                     );
@@ -228,6 +229,7 @@ fn on_node_selection_changed(
                                         &fonts,
                                         section_entity,
                                         field,
+                                        output_id,
                                         output_port,
                                         is_visible,
                                     );
@@ -263,103 +265,31 @@ fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res
     commands.entity(parent).add_child(header_entity);
 }
 
-fn spawn_input_widget(
-    commands: &mut Commands,
-    font_system: &mut CosmicFontSystem,
-    fonts: &Res<FontAssets>,
-    parent: Entity,
-    field: Field,
-    input_port: Entity,
-    is_visible: bool,
-) {
-    match field {
-        Field::LinearRgba(color) => {
-            let widget = LinearRgbaInputWidget::spawn(
-                commands,
-                font_system,
-                fonts.deja_vu_sans.clone(),
-                parent,
-                color,
-                input_port,
-                is_visible,
-            );
-            commands.entity(parent).add_child(widget);
-        }
-        // Add more field types here as we implement more widgets
-        _ => {}
-    }
-}
-
-fn spawn_output_widget(
-    commands: &mut Commands,
-    fonts: &Res<FontAssets>,
-    parent: Entity,
-    field: Field,
-    output_port: Entity,
-    is_visible: bool,
-) {
-    match field {
-        Field::LinearRgba(color) => {
-            let widget = LinearRgbaOutputWidget::spawn(
-                commands,
-                fonts.deja_vu_sans.clone(),
-                parent,
-                color,
-                output_port,
-                is_visible,
-            );
-            commands.entity(parent).add_child(widget);
-        }
-        // Add more field types here as we implement more widgets
-        _ => {}
-    }
-}
-
-// TODO: Inspector gets its own folder with these input / output widgets
 #[derive(Component)]
-pub struct LinearRgbaInputWidget {
-    pub red: Entity,
-    pub green: Entity,
-    pub blue: Entity,
-    pub alpha: Entity,
+struct PortControlWidget {
+    port_entity: Entity,
+    is_input: bool,
 }
 
-impl LinearRgbaInputWidget {
-    pub fn spawn(
+impl PortControlWidget {
+    fn spawn(
         commands: &mut Commands,
-        font_system: &mut CosmicFontSystem,
-        font: Handle<Font>,
-        parent: Entity,
-        value: LinearRgba,
-        input_port: Entity,
+        field_name: &str,
+        port_entity: Entity,
+        is_input: bool,
         is_visible: bool,
+        font: Handle<Font>,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
                 style: Style {
                     display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Stretch,
-                    padding: UiRect::all(Val::Px(10.0)),
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    padding: UiRect::all(Val::Px(5.0)),
                     ..default()
                 },
                 background_color: Color::srgba(0.1, 0.1, 0.1, 0.5).into(),
-                ..default()
-            })
-            .id();
-
-        let label = commands
-            .spawn(TextBundle::from_section(
-                "Color Input:",
-                TextStyle {
-                    font: font.clone(),
-                    font_size: 16.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ))
-            .insert(Style {
-                margin: UiRect::bottom(Val::Px(10.0)),
                 ..default()
             })
             .id();
@@ -389,9 +319,144 @@ impl LinearRgbaInputWidget {
                 border_radius: BorderRadius::all(Val::Px(10.0)),
                 ..default()
             })
-            .insert(InputPortVisibilitySwitch {
-                input_port,
+            .id();
+
+        let label_entity = commands
+            .spawn(TextBundle::from_section(
+                field_name,
+                TextStyle {
+                    font: font.clone(),
+                    font_size: 14.0,
+                    color: Color::WHITE,
+                },
+            ))
+            .id();
+
+        if is_input {
+            commands.entity(visibility_switch).insert(InputPortVisibilitySwitch {
+                input_port: port_entity,
                 is_visible,
+            });
+        } else {
+            commands.entity(visibility_switch).insert(OutputPortVisibilitySwitch {
+                output_port: port_entity,
+                is_visible,
+            });
+        }
+
+        commands.entity(widget_entity)
+            .push_children(&[animation_toggle, visibility_switch, label_entity])
+            .insert(PortControlWidget {
+                port_entity,
+                is_input,
+            });
+
+        widget_entity
+    }
+}
+
+fn spawn_input_widget(
+    commands: &mut Commands,
+    font_system: &mut CosmicFontSystem,
+    fonts: &Res<FontAssets>,
+    parent: Entity,
+    field: Field,
+    input_id: InputId,
+    input_port: Entity,
+    is_visible: bool,
+) {
+    let widget_entity = PortControlWidget::spawn(
+        commands,
+        input_id.1,
+        input_port,
+        true,
+        is_visible,
+        fonts.deja_vu_sans.clone(),
+    );
+
+
+    commands.entity(parent).add_child(widget_entity);
+
+    match field {
+        Field::LinearRgba(color) => {
+            let widget = LinearRgbaInputWidget::spawn(
+                commands,
+                font_system,
+                fonts.deja_vu_sans.clone(),
+                parent,
+                color,
+            );
+            commands.entity(parent).add_child(widget);
+        }
+        // Add more field types here as we implement more widgets
+        _ => {}
+    }
+}
+
+fn spawn_output_widget(
+    commands: &mut Commands,
+    fonts: &Res<FontAssets>,
+    parent: Entity,
+    field: Field,
+    output_id: OutputId,
+    output_port: Entity,
+    is_visible: bool,
+) {
+
+    let widget_entity = PortControlWidget::spawn(
+        commands,
+        output_id.1,
+        output_port,
+        false,
+        is_visible,
+        fonts.deja_vu_sans.clone(),
+    );
+
+    commands.entity(parent).add_child(widget_entity);
+
+    match field {
+        Field::LinearRgba(color) => {
+            let widget = LinearRgbaOutputWidget::spawn(
+                commands,
+                fonts.deja_vu_sans.clone(),
+                parent,
+                color,
+            );
+            commands.entity(parent).add_child(widget);
+        }
+        // Add more field types here as we implement more widgets
+        _ => {}
+    }
+}
+
+// TODO: Inspector gets its own folder with these input / output widgets
+#[derive(Component)]
+pub struct LinearRgbaInputWidget {
+    pub red: Entity,
+    pub green: Entity,
+    pub blue: Entity,
+    pub alpha: Entity,
+}
+
+impl LinearRgbaInputWidget {
+    pub fn spawn(
+        commands: &mut Commands,
+        font_system: &mut CosmicFontSystem,
+        font: Handle<Font>,
+        parent: Entity,
+        value: LinearRgba,
+    ) -> Entity {
+        let widget_entity = commands
+            .spawn(NodeBundle {
+                style: Style {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Stretch,
+                    padding: UiRect::all(Val::Px(10.0)),
+                    ..default()
+                },
+                background_color: Color::srgba(0.1, 0.1, 0.1, 0.5).into(),
+                ..default()
             })
             .id();
 
@@ -403,9 +468,6 @@ impl LinearRgbaInputWidget {
         commands
             .entity(widget_entity)
             .push_children(&[
-                label,
-                animation_toggle,
-                visibility_switch,
                 red,
                 green,
                 blue,
@@ -433,8 +495,6 @@ impl LinearRgbaOutputWidget {
         font: Handle<Font>,
         parent: Entity,
         value: LinearRgba,
-        output_port: Entity,
-        is_visible: bool,
     ) -> Entity {
         let widget_entity = commands
             .spawn(NodeBundle {
@@ -447,53 +507,6 @@ impl LinearRgbaOutputWidget {
                 },
                 background_color: Color::srgba(0.1, 0.1, 0.1, 0.5).into(),
                 ..default()
-            })
-            .id();
-
-        let label = commands
-            .spawn(TextBundle::from_section(
-                "Color Output:",
-                TextStyle {
-                    font: font.clone(),
-                    font_size: 16.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ))
-            .insert(Style {
-                margin: UiRect::bottom(Val::Px(10.0)),
-                ..default()
-            })
-            .id();
-
-        let animation_toggle = commands
-            .spawn(ButtonBundle {
-                style: Style {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
-                    margin: UiRect::right(Val::Px(5.0)),
-                    ..default()
-                },
-                background_color: GRAY.into(),
-                ..default()
-            })
-            .id();
-
-        let visibility_switch = commands
-            .spawn(ButtonBundle {
-                style: Style {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
-                    margin: UiRect::right(Val::Px(5.0)),
-                    ..default()
-                },
-                border_radius: BorderRadius::all(Val::Px(10.0)),
-                background_color: if is_visible { GREEN.into() } else { RED.into() },
-                ..default()
-            })
-            .insert(OutputPortVisibilitySwitch {
-                output_port,
-                is_visible,
             })
             .id();
 
@@ -529,9 +542,6 @@ impl LinearRgbaOutputWidget {
         commands
             .entity(widget_entity)
             .push_children(&[
-                label,
-                animation_toggle,
-                visibility_switch,
                 color_display,
                 color_text,
             ])
@@ -712,7 +722,7 @@ fn on_click_output_visibility_switch(
                         let mut events = Vec::new();
 
                         events.push(
-                            SetOutputVisibilityEvent {  // should this event be responsible for the edge removals? like, yes, but also we are making event soup :(
+                            SetOutputVisibilityEvent {  
                                 output_port: switch.output_port,
                                 is_visible: new_visibility,
                             }
