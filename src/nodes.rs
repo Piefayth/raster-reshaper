@@ -914,7 +914,7 @@ pub struct RequestDetatchInput {
 }
 // do systems that react to ui events go somewhere specific?
 // do they use triggers?
-
+// todo: move this to context menu
 fn detatch_input(
     trigger: Trigger<RequestDetatchInput>,
     q_pipeline: Query<&DisjointPipelineGraph>,
