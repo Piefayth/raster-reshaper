@@ -266,12 +266,12 @@ fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res
 }
 
 #[derive(Component)]
-struct PortControlWidget {
+struct FieldHeadingWidget {
     port_entity: Entity,
     is_input: bool,
 }
 
-impl PortControlWidget {
+impl FieldHeadingWidget {
     fn spawn(
         commands: &mut Commands,
         field_name: &str,
@@ -333,20 +333,25 @@ impl PortControlWidget {
             .id();
 
         if is_input {
-            commands.entity(visibility_switch).insert(InputPortVisibilitySwitch {
-                input_port: port_entity,
-                is_visible,
-            });
+            commands
+                .entity(visibility_switch)
+                .insert(InputPortVisibilitySwitch {
+                    input_port: port_entity,
+                    is_visible,
+                });
         } else {
-            commands.entity(visibility_switch).insert(OutputPortVisibilitySwitch {
-                output_port: port_entity,
-                is_visible,
-            });
+            commands
+                .entity(visibility_switch)
+                .insert(OutputPortVisibilitySwitch {
+                    output_port: port_entity,
+                    is_visible,
+                });
         }
 
-        commands.entity(widget_entity)
+        commands
+            .entity(widget_entity)
             .push_children(&[animation_toggle, visibility_switch, label_entity])
-            .insert(PortControlWidget {
+            .insert(FieldHeadingWidget {
                 port_entity,
                 is_input,
             });
@@ -365,7 +370,7 @@ fn spawn_input_widget(
     input_port: Entity,
     is_visible: bool,
 ) {
-    let widget_entity = PortControlWidget::spawn(
+    let widget_entity = FieldHeadingWidget::spawn(
         commands,
         input_id.1,
         input_port,
@@ -373,7 +378,6 @@ fn spawn_input_widget(
         is_visible,
         fonts.deja_vu_sans.clone(),
     );
-
 
     commands.entity(parent).add_child(widget_entity);
 
@@ -402,8 +406,7 @@ fn spawn_output_widget(
     output_port: Entity,
     is_visible: bool,
 ) {
-
-    let widget_entity = PortControlWidget::spawn(
+    let widget_entity = FieldHeadingWidget::spawn(
         commands,
         output_id.1,
         output_port,
@@ -416,12 +419,8 @@ fn spawn_output_widget(
 
     match field {
         Field::LinearRgba(color) => {
-            let widget = LinearRgbaOutputWidget::spawn(
-                commands,
-                fonts.deja_vu_sans.clone(),
-                parent,
-                color,
-            );
+            let widget =
+                LinearRgbaOutputWidget::spawn(commands, fonts.deja_vu_sans.clone(), parent, color);
             commands.entity(parent).add_child(widget);
         }
         // Add more field types here as we implement more widgets
@@ -467,12 +466,7 @@ impl LinearRgbaInputWidget {
 
         commands
             .entity(widget_entity)
-            .push_children(&[
-                red,
-                green,
-                blue,
-                alpha,
-            ])
+            .push_children(&[red, green, blue, alpha])
             .insert(LinearRgbaInputWidget {
                 red,
                 green,
@@ -541,10 +535,7 @@ impl LinearRgbaOutputWidget {
 
         commands
             .entity(widget_entity)
-            .push_children(&[
-                color_display,
-                color_text,
-            ])
+            .push_children(&[color_display, color_text])
             .insert(LinearRgbaOutputWidget);
 
         commands.entity(parent).add_child(widget_entity);
@@ -668,30 +659,27 @@ fn on_click_input_visibility_switch(
                         );
 
                         if !new_visibility {
-                            let edges_to_remove: Vec<_> = pipeline
+                            for edge in pipeline
                                 .graph
                                 .edges_directed(port.node_index, Direction::Incoming)
-                                .filter(|edge| edge.weight().to_field == port.input_id)
-                                .filter_map(|edge| {
-                                    q_output_ports.iter().find_map(|(output_entity, out_port)| {
-                                        if out_port.node_index == edge.source()
-                                            && out_port.output_id == edge.weight().from_field
-                                        {
-                                            Some(
-                                                RemoveEdgeEvent {
-                                                    start_port: output_entity,
-                                                    end_port: switch.input_port,
-                                                }
-                                                .into(),
-                                            )
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                })
-                                .collect();
-
-                            events.extend(edges_to_remove);
+                            {
+                                if edge.weight().to_field == port.input_id {
+                                    if let Some((output_entity, _)) =
+                                        q_output_ports.iter().find(|(_, out_port)| {
+                                            out_port.node_index == edge.source()
+                                                && out_port.output_id == edge.weight().from_field
+                                        })
+                                    {
+                                        events.push(
+                                            RemoveEdgeEvent {
+                                                start_port: output_entity,
+                                                end_port: switch.input_port,
+                                            }
+                                            .into(),
+                                        );
+                                    }
+                                }
+                            }
                         }
 
                         undoable_events.send(UndoableEventGroup { events });
@@ -722,7 +710,7 @@ fn on_click_output_visibility_switch(
                         let mut events = Vec::new();
 
                         events.push(
-                            SetOutputVisibilityEvent {  
+                            SetOutputVisibilityEvent {
                                 output_port: switch.output_port,
                                 is_visible: new_visibility,
                             }
@@ -730,30 +718,27 @@ fn on_click_output_visibility_switch(
                         );
 
                         if !new_visibility {
-                            let edges_to_remove: Vec<_> = pipeline
+                            for edge in pipeline
                                 .graph
                                 .edges_directed(port.node_index, Direction::Outgoing)
-                                .filter(|edge| edge.weight().from_field == port.output_id)
-                                .filter_map(|edge| {
-                                    q_input_ports.iter().find_map(|(input_entity, in_port)| {
-                                        if in_port.node_index == edge.target()
-                                            && in_port.input_id == edge.weight().to_field
-                                        {
-                                            Some(
-                                                RemoveEdgeEvent {
-                                                    start_port: switch.output_port,
-                                                    end_port: input_entity,
-                                                }
-                                                .into(),
-                                            )
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                })
-                                .collect();
-
-                            events.extend(edges_to_remove);
+                            {
+                                if edge.weight().from_field == port.output_id {
+                                    if let Some((input_entity, _)) =
+                                        q_input_ports.iter().find(|(_, in_port)| {
+                                            in_port.node_index == edge.target()
+                                                && in_port.input_id == edge.weight().to_field
+                                        })
+                                    {
+                                        events.push(
+                                            RemoveEdgeEvent {
+                                                start_port: switch.output_port,
+                                                end_port: input_entity,
+                                            }
+                                            .into(),
+                                        );
+                                    }
+                                }
+                            }
                         }
 
                         undoable_events.send(UndoableEventGroup { events });
