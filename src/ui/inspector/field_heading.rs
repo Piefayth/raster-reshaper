@@ -122,12 +122,12 @@ impl FieldHeadingWidget {
 
 
 pub fn on_click_input_visibility_switch(
+    mut commands: Commands,
     mut down_events: EventReader<Pointer<Down>>,
     q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<(Entity, &OutputPort)>,
-    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
@@ -172,7 +172,7 @@ pub fn on_click_input_visibility_switch(
                             }
                         }
 
-                        undoable_events.send(UndoableEventGroup { events });
+                        commands.trigger(UndoableEventGroup { events });
                     }
                 }
             }
@@ -181,12 +181,12 @@ pub fn on_click_input_visibility_switch(
 }
 
 pub fn on_click_output_visibility_switch(
+    mut commands: Commands,
     mut down_events: EventReader<Pointer<Down>>,
     q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,
     q_input_ports: Query<(Entity, &InputPort)>,
-    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
@@ -231,7 +231,7 @@ pub fn on_click_output_visibility_switch(
                             }
                         }
 
-                        undoable_events.send(UndoableEventGroup { events });
+                        commands.trigger(UndoableEventGroup { events });
                     }
                 }
             }

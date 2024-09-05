@@ -13,8 +13,8 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
 };
 use field_heading::FieldHeadingWidget;
-use float_input::FloatInputPlugin;
-use linear_rgba::{LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, RequestUpdateLinearRgbaInput};
+use text_input::TextInputPlugin;
+use linear_rgba::{LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, LinearRgbaWidgetCallbacks, RequestUpdateLinearRgbaInput};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::StableDiGraph,
@@ -37,14 +37,14 @@ use super::{Spawner, UIContext};
 
 pub mod linear_rgba;
 pub mod field_heading;
-pub mod float_input;
+pub mod text_input;
 
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            FloatInputPlugin,
+            TextInputPlugin,
             LinearRgbaPlugin,
         ));
         app.add_systems(
@@ -117,6 +117,7 @@ impl InspectorPanel {
 //  and builds the appropriate widgets in the inspector, given those changes.
 fn on_node_selection_changed(
     mut commands: Commands,
+    linear_rgba_callbacks: Res<LinearRgbaWidgetCallbacks>,
     selected_nodes: Query<Entity, (With<NodeDisplay>, With<Selected>)>,
     mut removed_selections: RemovedComponents<Selected>,
     nodes: Query<&NodeDisplay>,
@@ -202,20 +203,40 @@ fn on_node_selection_changed(
                                         .get_input_meta(input_id)
                                         .map(|meta| meta.visible)
                                         .unwrap_or(false);
-                                    spawn_input_widget(
+
+                                    let widget_entity = FieldHeadingWidget::spawn(
                                         &mut commands,
-                                        &mut font_system,
-                                        &fonts,
-                                        section_entity,
-                                        field,
-                                        selected_entity,
-                                        input_id,
+                                        input_id.1,
                                         input_port,
+                                        true,
                                         is_visible,
+                                        fonts.deja_vu_sans.clone(),
                                     );
+                                
+                                    commands.entity(section_entity).add_child(widget_entity);
+                                    
+                                    // spawn the specific kind of widget
+                                    match field {
+                                        Field::LinearRgba(color) => {
+                                            let widget = LinearRgbaInputWidget::spawn(
+                                                &mut commands,
+                                                &linear_rgba_callbacks,
+                                                &mut font_system,
+                                                fonts.deja_vu_sans.clone(),
+                                                section_entity,
+                                                selected_entity,
+                                                input_id,
+                                                color,
+                                            );
+                                            commands.entity(section_entity).add_child(widget);
+                                        }
+                                        // Add more field types here as we implement more widgets
+                                        _ => {}
+                                    }
                                 }
                             }
                         }
+
                         spawn_header(&mut commands, section_entity, "Outputs", &fonts);
 
                         // Spawn output widgets
@@ -269,6 +290,10 @@ fn trigger_inspector_updates(
 ) {
     let graph = &q_graph.single().graph;
 
+    // TODO - Don't update boxes that are currently focused.
+    //  and when boxes are defocused, write back to the graph
+    // otherwise graph cahnges will blow out your current input lmao dont delete this again til u fix
+
     if let Ok(panel) = q_inspector_panel.get_single() {
         for &node_entity in panel.displayed_nodes.iter() {  // for every node shown in inspector
             if let Ok(node_display) = q_node_displays.get(node_entity) {
@@ -321,47 +346,6 @@ fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res
     commands.entity(parent).add_child(header_entity);
 }
 
-
-
-fn spawn_input_widget(
-    commands: &mut Commands,
-    font_system: &mut CosmicFontSystem,
-    fonts: &Res<FontAssets>,
-    parent: Entity,
-    field: Field,
-    node: Entity,
-    input_id: InputId,
-    input_port: Entity,
-    is_visible: bool,
-) {
-    let widget_entity = FieldHeadingWidget::spawn(
-        commands,
-        input_id.1,
-        input_port,
-        true,
-        is_visible,
-        fonts.deja_vu_sans.clone(),
-    );
-
-    commands.entity(parent).add_child(widget_entity);
-
-    match field {
-        Field::LinearRgba(color) => {
-            let widget = LinearRgbaInputWidget::spawn(
-                commands,
-                font_system,
-                fonts.deja_vu_sans.clone(),
-                parent,
-                node,
-                input_id,
-                color,
-            );
-            commands.entity(parent).add_child(widget);
-        }
-        // Add more field types here as we implement more widgets
-        _ => {}
-    }
-}
 
 fn spawn_output_widget(
     commands: &mut Commands,

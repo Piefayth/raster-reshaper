@@ -35,16 +35,14 @@ impl Plugin for PortPlugin {
             (
                 handle_port_hover,
                 handle_port_selection,
-                reposition_input_ports,
-                reposition_output_ports,
-                handle_input_port_visibility_change,
-                handle_output_port_visibility_change,
             )
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
 
-        app.add_event::<RequestInputPortRelayout>();
-        app.add_event::<RequestOutputPortRelayout>();
+        app.observe(handle_input_port_visibility_change);
+        app.observe(handle_output_port_visibility_change);
+        app.observe(reposition_input_ports);
+        app.observe(reposition_output_ports);
     }
 }
 
@@ -177,7 +175,6 @@ pub fn handle_port_selection(
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
     q_pipeline: Query<&DisjointPipelineGraph>,
-    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     let (camera, camera_transform) = camera_query.single();
     let window = window.single();
@@ -320,7 +317,7 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(input_port) = maybe_hovered_input {
-                        undoable_events.send(UndoableEventGroup::from_event(AddEdgeEvent {
+                        commands.trigger(UndoableEventGroup::from_event(AddEdgeEvent {
                             start_port,
                             end_port: input_port,
                         }));
@@ -328,7 +325,7 @@ pub fn handle_port_selection(
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
-                        undoable_events.send(UndoableEventGroup::from_event(AddEdgeEvent {
+                        commands.trigger(UndoableEventGroup::from_event(AddEdgeEvent {
                             start_port: output_port,
                             end_port: start_port,
                         }));
@@ -367,122 +364,116 @@ fn handle_port_hover(
 }
 
 pub fn reposition_input_ports(
-    mut events: EventReader<RequestInputPortRelayout>,
+    trigger: Trigger<RequestInputPortRelayout>,
     mut query: Query<(&mut Transform, &mut Visibility, &InputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
 ) {
     let pipeline = pipeline_query.single();
-    for event in events.read() {
-        let input_port = q_input_ports.get(event.input_port).unwrap();
+        let input_port = q_input_ports.get(trigger.event().input_port).unwrap();
 
-        if let Some(node) = pipeline.graph.node_weight(input_port.node_index) {
-            let port_group_vertical_margin = 36.;
-            let visible_inputs: Vec<_> = node
-                .input_fields()
-                .iter()
-                .filter(|&&id| node.get_input_meta(id).unwrap().visible)
-                .collect();
+    if let Some(node) = pipeline.graph.node_weight(input_port.node_index) {
+        let port_group_vertical_margin = 36.;
+        let visible_inputs: Vec<_> = node
+            .input_fields()
+            .iter()
+            .filter(|&&id| node.get_input_meta(id).unwrap().visible)
+            .collect();
 
-            for (mut transform, mut visibility, port) in query
-                .iter_mut()
-                .filter(|(_, _, p)| p.node_index == input_port.node_index)
-            {
-                let meta = node.get_input_meta(port.input_id).unwrap();
-                if meta.visible {
-                    let index = visible_inputs
-                        .iter()
-                        .position(|&&id| id == port.input_id)
-                        .unwrap_or(0);
-                    transform.translation = Vec3::new(
-                        -NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
-                            - port_group_vertical_margin
-                            - (index as f32 * PORT_RADIUS * 3.),
-                        0.5,
-                    );
-                    *visibility = Visibility::Inherited;
-                } else {
-                    *visibility = Visibility::Hidden;
-                }
+        for (mut transform, mut visibility, port) in query
+            .iter_mut()
+            .filter(|(_, _, p)| p.node_index == input_port.node_index)
+        {
+            let meta = node.get_input_meta(port.input_id).unwrap();
+            if meta.visible {
+                let index = visible_inputs
+                    .iter()
+                    .position(|&&id| id == port.input_id)
+                    .unwrap_or(0);
+                transform.translation = Vec3::new(
+                    -NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
+                    (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
+                        - port_group_vertical_margin
+                        - (index as f32 * PORT_RADIUS * 3.),
+                    0.5,
+                );
+                *visibility = Visibility::Inherited;
+            } else {
+                *visibility = Visibility::Hidden;
             }
         }
     }
 }
 
 pub fn reposition_output_ports(
-    mut events: EventReader<RequestOutputPortRelayout>,
+    trigger: Trigger<RequestOutputPortRelayout>,
     mut query: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,
 ) {
     let pipeline = pipeline_query.single();
-    for event in events.read() {
-        let output_port = q_output_ports.get(event.output_port).unwrap();
+    let output_port = q_output_ports.get(trigger.event().output_port).unwrap();
 
-        if let Some(node) = pipeline.graph.node_weight(output_port.node_index) {
-            let port_group_vertical_margin = 36.;
-            let visible_outputs: Vec<_> = node
-                .output_fields()
-                .iter()
-                .filter(|&&id| node.get_output_meta(id).unwrap().visible)
-                .collect();
+    if let Some(node) = pipeline.graph.node_weight(output_port.node_index) {
+        let port_group_vertical_margin = 36.;
+        let visible_outputs: Vec<_> = node
+            .output_fields()
+            .iter()
+            .filter(|&&id| node.get_output_meta(id).unwrap().visible)
+            .collect();
 
-            for (mut transform, mut visibility, port) in query
-                .iter_mut()
-                .filter(|(_, _, p)| p.node_index == output_port.node_index)
-            {
-                let meta = node.get_output_meta(port.output_id).unwrap();
-                if meta.visible {
-                    let index = visible_outputs
-                        .iter()
-                        .position(|&&id| id == port.output_id)
-                        .unwrap_or(0);
-                    transform.translation = Vec3::new(
-                        NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
-                        (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
-                            - port_group_vertical_margin
-                            - (index as f32 * PORT_RADIUS * 3.),
-                        0.5,
-                    );
-                    *visibility = Visibility::Inherited;
-                } else {
-                    *visibility = Visibility::Hidden;
-                }
+        for (mut transform, mut visibility, port) in query
+            .iter_mut()
+            .filter(|(_, _, p)| p.node_index == output_port.node_index)
+        {
+            let meta = node.get_output_meta(port.output_id).unwrap();
+            if meta.visible {
+                let index = visible_outputs
+                    .iter()
+                    .position(|&&id| id == port.output_id)
+                    .unwrap_or(0);
+                transform.translation = Vec3::new(
+                    NODE_TEXTURE_DISPLAY_DIMENSION / 2.,
+                    (NODE_TEXTURE_DISPLAY_DIMENSION / 2.)
+                        - port_group_vertical_margin
+                        - (index as f32 * PORT_RADIUS * 3.),
+                    0.5,
+                );
+                *visibility = Visibility::Inherited;
+            } else {
+                *visibility = Visibility::Hidden;
             }
         }
     }
 }
 
 fn handle_input_port_visibility_change(
-    mut events: EventReader<SetInputVisibilityEvent>,
+    trigger: Trigger<SetInputVisibilityEvent>,
+    mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_input_ports: Query<&InputPort>,
-    mut visibility_events: EventWriter<RequestInputPortRelayout>,
 ) {
-    for event in events.read() {
-        let mut pipeline = q_pipeline.single_mut();
-        if let Ok(input_port) = q_input_ports.get(event.input_port) {
-            if let Some(node) = pipeline.graph.node_weight_mut(input_port.node_index) {
-                if let Some(meta) = node.get_input_meta(input_port.input_id) {
-                    let new_meta = FieldMeta {
-                        visible: event.is_visible,
-                        ..meta.clone()
-                    };
-                    node.set_input_meta(input_port.input_id, new_meta);
+    let mut pipeline = q_pipeline.single_mut();
+    if let Ok(input_port) = q_input_ports.get(trigger.event().input_port) {
+        if let Some(node) = pipeline.graph.node_weight_mut(input_port.node_index) {
+            if let Some(meta) = node.get_input_meta(input_port.input_id) {
+                let new_meta = FieldMeta {
+                    visible: trigger.event().is_visible,
+                    ..meta.clone()
+                };
+                node.set_input_meta(input_port.input_id, new_meta);
 
-                    visibility_events.send(RequestInputPortRelayout {
-                        input_port: event.input_port,
-                    });
+                commands.trigger(RequestInputPortRelayout {
+                    input_port: trigger.event().input_port,
+                });
 
-                    // Find the correct switch entity and update it
-                    for (mut switch, mut background_color) in q_switches.iter_mut() {
-                        if switch.input_port == event.input_port {
-                            switch.is_visible = event.is_visible;
-                            *background_color = if event.is_visible { GREEN.into() } else { RED.into() };
-                            break;
-                        }
+                // Find the correct switch entity and update it
+                for (mut switch, mut background_color) in q_switches.iter_mut() {
+                    if switch.input_port == trigger.event().input_port {
+                        switch.is_visible = trigger.event().is_visible;
+                        *background_color = if trigger.event().is_visible { GREEN.into() } else { RED.into() };
+                        break;
                     }
                 }
             }
@@ -491,34 +482,32 @@ fn handle_input_port_visibility_change(
 }
 
 fn handle_output_port_visibility_change(
-    mut events: EventReader<SetOutputVisibilityEvent>,
+    trigger: Trigger<SetOutputVisibilityEvent>,
+    mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_output_ports: Query<&OutputPort>,
-    mut visibility_events: EventWriter<RequestOutputPortRelayout>,
 ) {
-    for event in events.read() {
-        let mut pipeline = q_pipeline.single_mut();
-        if let Ok(output_port) = q_output_ports.get(event.output_port) {
-            if let Some(node) = pipeline.graph.node_weight_mut(output_port.node_index) {
-                if let Some(meta) = node.get_output_meta(output_port.output_id) {
-                    let new_meta = FieldMeta {
-                        visible: event.is_visible,
-                        ..meta.clone()
-                    };
-                    node.set_output_meta(output_port.output_id, new_meta);
+    let mut pipeline = q_pipeline.single_mut();
+    if let Ok(output_port) = q_output_ports.get(trigger.event().output_port) {
+        if let Some(node) = pipeline.graph.node_weight_mut(output_port.node_index) {
+            if let Some(meta) = node.get_output_meta(output_port.output_id) {
+                let new_meta = FieldMeta {
+                    visible: trigger.event().is_visible,
+                    ..meta.clone()
+                };
+                node.set_output_meta(output_port.output_id, new_meta);
 
-                    visibility_events.send(RequestOutputPortRelayout {
-                        output_port: event.output_port,
-                    });
+                commands.trigger(RequestOutputPortRelayout {
+                    output_port: trigger.event().output_port,
+                });
 
-                    // Find the correct switch entity and update it
-                    for (mut switch, mut background_color) in q_switches.iter_mut() {
-                        if switch.output_port == event.output_port {
-                            switch.is_visible = event.is_visible;
-                            *background_color = if event.is_visible { GREEN.into() } else { RED.into() };
-                            break;
-                        }
+                // Find the correct switch entity and update it
+                for (mut switch, mut background_color) in q_switches.iter_mut() {
+                    if switch.output_port == trigger.event().output_port {
+                        switch.is_visible = trigger.event().is_visible;
+                        *background_color = if trigger.event().is_visible { GREEN.into() } else { RED.into() };
+                        break;
                     }
                 }
             }

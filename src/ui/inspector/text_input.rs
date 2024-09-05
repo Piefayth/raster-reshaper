@@ -1,32 +1,46 @@
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemId, prelude::*};
 use bevy_cosmic_edit::*;
 
-pub struct FloatInputPlugin;
+pub struct TextInputPlugin;
 
-impl Plugin for FloatInputPlugin {
+impl Plugin for TextInputPlugin {
     fn build(&self, app: &mut App) {
-        app.observe(update_float_input);
+        app.observe(update_text_input);
     }
 }
 
 #[derive(Component)]
-pub struct FloatInputWidget {
+pub struct TextInputWidget {
     pub cosmic_edit: Entity,
 }
 
 #[derive(Event)]
-pub struct RequestUpdateFloatInput {
+pub struct RequestUpdateTextInput {
     pub value: f32,
     pub widget_entity: Entity,
 }
 
-impl FloatInputWidget {
+pub struct TextInputHandlerInput {
+    pub value: String,
+    pub controlling_widget: Entity,
+}
+
+// marks a cosmic edit bundle as controlled by a specific system
+#[derive(Component)]
+pub struct ControlledTextInput {
+    pub handler: SystemId<TextInputHandlerInput>,
+    pub controlling_widget: Entity,
+}
+
+impl TextInputWidget {
     pub fn spawn(
         commands: &mut Commands,
         font_system: &mut CosmicFontSystem,
         font: Handle<Font>,
         label: &str,
         value: f32,
+        handler: SystemId<TextInputHandlerInput>,
+        controlling_widget: Entity,
     ) -> Entity {
         let attrs = Attrs::new().color(Color::WHITE.to_cosmic());
 
@@ -51,6 +65,10 @@ impl FloatInputWidget {
                 },
                 Node::DEFAULT,
             ))
+            .insert(ControlledTextInput {
+                handler,
+                controlling_widget,
+            })
             .id();
 
         let input_row = commands
@@ -97,7 +115,7 @@ impl FloatInputWidget {
                     .insert(CosmicSource(cosmic_edit))
                     .insert(ScrollDisabled);
             })
-            .insert(FloatInputWidget {
+            .insert(TextInputWidget {
                 cosmic_edit,
             })
             .id();
@@ -108,13 +126,13 @@ impl FloatInputWidget {
     }
 }
 
-fn update_float_input(
-    trigger: Trigger<RequestUpdateFloatInput>,
+fn update_text_input(
+    trigger: Trigger<RequestUpdateTextInput>,
     mut font_system: ResMut<CosmicFontSystem>,
     mut cosmic_buffers: Query<&mut CosmicBuffer>,
-    q_float_input: Query<&FloatInputWidget>,
+    q_text_input: Query<&TextInputWidget>,
 ) {
-    if let Ok(float_input) = q_float_input.get(trigger.event().widget_entity) {
+    if let Ok(float_input) = q_text_input.get(trigger.event().widget_entity) {
         if let Ok(mut buffer) = cosmic_buffers.get_mut(float_input.cosmic_edit) {
             buffer.set_text(&mut font_system, &format!("{:.2}", trigger.event().value), Attrs::new().color(Color::WHITE.to_cosmic()));
         }

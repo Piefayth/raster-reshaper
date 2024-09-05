@@ -7,10 +7,10 @@ use bevy::{
     prelude::ChildBuilder,
     prelude::*,
 };
-use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem, CosmicSource, FocusedWidget};
+use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, BufferExtras, CosmicBuffer, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem, CosmicSource, FocusedWidget};
 use bevy_mod_picking::{events::{Down, Pointer}, prelude::Pickable};
 use context_menu::{ContextMenuPlugin, UIContext};
-use inspector::{InspectorPanel, InspectorPlugin};
+use inspector::{text_input::{ControlledTextInput, TextInputHandlerInput}, InspectorPanel, InspectorPlugin};
 use petgraph::graph::NodeIndex;
 
 pub mod context_menu;
@@ -111,15 +111,60 @@ fn ui_setup(mut commands: Commands) {
         .push_children(&[node_edit_area, inspector_panel]);
 }
 
-// clicking anything that isnt a text input = drop focus
+
+// only applies to text inputs - this is bevy-cosmic-edit specific
 fn drop_text_focus(
+    mut commands: Commands,
     mut ev_down: EventReader<Pointer<Down>>,
     mut focused: ResMut<FocusedWidget>,
-    q_cosmic_source: Query<Entity, With<CosmicSource>>,
+    q_cosmic_source: Query<(&CosmicSource)>,
+    q_cosmic_edit: Query<(&CosmicBuffer, Option<&ControlledTextInput>)>,
+    mut old_focused: Local<Option<Entity>>,
 ) {
+    let mut clicked_on_not_a_text_input = false;
+
     for event in ev_down.read() {
         if !q_cosmic_source.contains(event.target) {
-            focused.0 = None;
+            clicked_on_not_a_text_input = true;
         }
     }
+
+    let mut field_to_update: Option<Entity> = None;
+
+    if clicked_on_not_a_text_input {
+        field_to_update = focused.0;    // signal to update the backing data for the field that's losing focus
+        focused.0 = None;   // drop the focus because we clicked on not a text input
+    } else {
+        // focus still might've changed
+        match (focused.0, *old_focused) {
+            (Some(focus), Some(old)) => {
+                if focus != old {
+                    field_to_update = Some(old);
+                }
+            },
+            (None, Some(old)) => {
+                field_to_update = Some(old);
+            },
+            _ => {
+                field_to_update = None;
+            },
+            
+        }
+    }
+    
+    *old_focused = focused.0;
+
+    if field_to_update.is_some() {
+        if let Some(field_to_update) = field_to_update {
+            let (buffer, maybe_controlled) = q_cosmic_edit.get(field_to_update).unwrap();
+            if let Some(controlled) = maybe_controlled {
+                let input = TextInputHandlerInput {
+                    value: buffer.0.get_text(),
+                    controlling_widget: controlled.controlling_widget,
+                };
+                commands.run_system_with_input::<TextInputHandlerInput>(controlled.handler, input)
+            }
+        }
+    }
+    
 }

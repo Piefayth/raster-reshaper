@@ -81,6 +81,12 @@ pub struct InputId(pub &'static str, pub &'static str);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct OutputId(pub &'static str, pub &'static str);
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum FieldId {
+    Input(InputId),
+    Output(OutputId)
+}
+
 pub trait NodeTrait {
     fn get_input(&self, id: InputId) -> Option<Field>;
     fn get_output(&self, id: OutputId) -> Option<Field>;
@@ -433,8 +439,6 @@ fn spawn_requested_node(
     meshes: Res<GeneratedMeshes>,
     mut node_count: Local<u32>,
     fonts: Res<FontAssets>,
-    mut input_visibility_events: EventWriter<RequestInputPortRelayout>,
-    mut output_visibility_events: EventWriter<RequestOutputPortRelayout>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
@@ -536,7 +540,9 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                input_visibility_events.send(RequestInputPortRelayout { input_port });
+                child_builder.add_command(move |world: &mut World| {
+                    world.trigger(RequestInputPortRelayout { input_port });
+                });
             }
 
             // Spawn output ports
@@ -550,7 +556,9 @@ fn spawn_requested_node(
                     &meshes,
                 );
 
-                output_visibility_events.send(RequestOutputPortRelayout { output_port });
+                child_builder.add_command(move |world: &mut World| {
+                    world.trigger(RequestOutputPortRelayout { output_port });
+                });
             }
         });
 

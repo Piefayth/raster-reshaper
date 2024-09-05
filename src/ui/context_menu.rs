@@ -406,10 +406,10 @@ pub struct RequestDetatchInput {
 
 fn detatch_input(
     trigger: Trigger<RequestDetatchInput>,
+    mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
-    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     let pipeline = q_pipeline.single();
     let target_node = trigger.event().node;
@@ -427,7 +427,7 @@ fn detatch_input(
             if let Some((output_port_entity, _)) = q_output_ports.iter().find(|(_, port)| {
                 port.node_index == edge.source() && port.output_id == edge.weight().from_field
             }) {
-                undoable_events.send(UndoableEventGroup::from_event(RemoveEdgeEvent {
+                commands.trigger(UndoableEventGroup::from_event(RemoveEdgeEvent {
                     start_port: output_port_entity,
                     end_port: target_port_entity,
                 }));
@@ -444,10 +444,10 @@ pub struct RequestDetatchOutput {
 
 fn detatch_output(
     trigger: Trigger<RequestDetatchOutput>,
+    mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<(Entity, &OutputPort)>,
     q_input_ports: Query<(Entity, &InputPort)>,
-    mut undoable_events: EventWriter<UndoableEventGroup>,
 ) {
     let pipeline = q_pipeline.single();
     let target_node = trigger.event().node;
@@ -480,7 +480,7 @@ fn detatch_output(
         }
 
         if !events.is_empty() {
-            undoable_events.send(UndoableEventGroup { events });
+            commands.trigger(UndoableEventGroup { events });
         }
     }
 }
