@@ -48,7 +48,7 @@ impl FieldHeadingWidget {
                     padding: UiRect::all(Val::Px(5.0)),
                     ..default()
                 },
-                background_color: Color::srgba(0.1, 0.1, 0.1, 0.5).into(),
+                background_color: Color::linear_rgba(0.1, 0.1, 0.1, 0.5).into(),
                 ..default()
             })
             .id();

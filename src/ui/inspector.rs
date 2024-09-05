@@ -13,14 +13,17 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
 };
 use field_heading::FieldHeadingWidget;
-use text_input::TextInputPlugin;
-use linear_rgba::{LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, LinearRgbaWidgetCallbacks, RequestUpdateLinearRgbaInput};
+use linear_rgba::{
+    LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, LinearRgbaWidgetCallbacks,
+    RequestUpdateLinearRgbaInput, RequestUpdateLinearRgbaOutput,
+};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::StableDiGraph,
     visit::EdgeRef,
     Direction,
 };
+use text_input::TextInputPlugin;
 
 use crate::{
     asset::FontAssets,
@@ -35,18 +38,15 @@ use crate::{
 
 use super::{Spawner, UIContext};
 
-pub mod linear_rgba;
 pub mod field_heading;
+pub mod linear_rgba;
 pub mod text_input;
 
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            TextInputPlugin,
-            LinearRgbaPlugin,
-        ));
+        app.add_plugins((TextInputPlugin, LinearRgbaPlugin));
         app.add_systems(
             Update,
             (
@@ -69,7 +69,6 @@ struct InspectorSection {
 #[derive(Component)]
 pub struct InspectorPanel {
     displayed_nodes: HashSet<Entity>,
-
 }
 
 #[derive(Component)]
@@ -212,9 +211,9 @@ fn on_node_selection_changed(
                                         is_visible,
                                         fonts.deja_vu_sans.clone(),
                                     );
-                                
+
                                     commands.entity(section_entity).add_child(widget_entity);
-                                    
+
                                     // spawn the specific kind of widget
                                     match field {
                                         Field::LinearRgba(color) => {
@@ -259,15 +258,33 @@ fn on_node_selection_changed(
                                         .get_output_meta(output_id)
                                         .map(|meta| meta.visible)
                                         .unwrap_or(false);
-                                    spawn_output_widget(
+
+                                    let widget_entity = FieldHeadingWidget::spawn(
                                         &mut commands,
-                                        &fonts,
-                                        section_entity,
-                                        field,
-                                        output_id,
+                                        output_id.1,
                                         output_port,
+                                        false,
                                         is_visible,
+                                        fonts.deja_vu_sans.clone(),
                                     );
+
+                                    commands.entity(section_entity).add_child(widget_entity);
+
+                                    match field {
+                                        Field::LinearRgba(color) => {
+                                            let widget = LinearRgbaOutputWidget::spawn(
+                                                &mut commands,
+                                                fonts.deja_vu_sans.clone(),
+                                                section_entity,
+                                                color,
+                                                selected_entity,
+                                                output_id,
+                                            );
+                                            commands.entity(section_entity).add_child(widget);
+                                        }
+                                        // Add more field types here as we implement more widgets
+                                        _ => {}
+                                    }
                                 }
                             }
                         }
@@ -287,13 +304,15 @@ fn trigger_inspector_updates(
     q_inspector_panel: Query<&InspectorPanel>,
     q_node_displays: Query<&NodeDisplay>,
     q_linear_rgba_inputs: Query<(Entity, &LinearRgbaInputWidget)>,
+    q_linear_rgba_outputs: Query<(Entity, &LinearRgbaOutputWidget)>,
 ) {
     let graph = &q_graph.single().graph;
 
     // TODO - Don't update boxes that are currently focused.
 
     if let Ok(panel) = q_inspector_panel.get_single() {
-        for &node_entity in panel.displayed_nodes.iter() {  // for every node shown in inspector
+        for &node_entity in panel.displayed_nodes.iter() {
+            // for every node shown in inspector
             if let Ok(node_display) = q_node_displays.get(node_entity) {
                 let node = graph.node_weight(node_display.index).unwrap();
                 let node_fields = node.input_fields();
@@ -301,25 +320,37 @@ fn trigger_inspector_updates(
                 for input_id in node_fields {
                     let field = node.get_input(*input_id).unwrap();
                     match field {
-                        Field::U32(_) => {},
-                        Field::F32(_) => {},
-                        Field::Vec4(_) => {},
+                        Field::U32(_) => {}
+                        Field::F32(_) => {}
+                        Field::Vec4(_) => {}
                         Field::LinearRgba(lrgba_value) => {
-                            q_linear_rgba_inputs.iter().for_each(|(lrgba_entity, lrgba_widget)| {
-                                if lrgba_widget.node == node_entity {
-                                    commands.trigger(RequestUpdateLinearRgbaInput {
-                                        value: lrgba_value,
-                                        widget_entity: lrgba_entity,
-                                    });
-                                }
-                            });
-                        },
-                        Field::Extent3d(_) => {},
-                        Field::TextureFormat(_) => {},
-                        Field::Image(_) => {},
+                            q_linear_rgba_inputs
+                                .iter()
+                                .for_each(|(lrgba_entity, lrgba_widget)| {
+                                    if lrgba_widget.node == node_entity {
+                                        commands.trigger(RequestUpdateLinearRgbaInput {
+                                            value: lrgba_value,
+                                            widget_entity: lrgba_entity,
+                                        });
+                                    }
+                                });
+
+                            q_linear_rgba_outputs.iter().for_each(
+                                |(lrgba_entity, lrgba_widget)| {
+                                    if lrgba_widget.node == node_entity {
+                                        commands.trigger(RequestUpdateLinearRgbaOutput {
+                                            value: lrgba_value,
+                                            widget_entity: lrgba_entity,
+                                        });
+                                    }
+                                },
+                            );
+                        }
+                        Field::Extent3d(_) => {}
+                        Field::TextureFormat(_) => {}
+                        Field::Image(_) => {}
                     };
                 }
-
             }
         }
     }
@@ -342,36 +373,4 @@ fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res
         .id();
 
     commands.entity(parent).add_child(header_entity);
-}
-
-
-fn spawn_output_widget(
-    commands: &mut Commands,
-    fonts: &Res<FontAssets>,
-    parent: Entity,
-    field: Field,
-    output_id: OutputId,
-    output_port: Entity,
-    is_visible: bool,
-) {
-    let widget_entity = FieldHeadingWidget::spawn(
-        commands,
-        output_id.1,
-        output_port,
-        false,
-        is_visible,
-        fonts.deja_vu_sans.clone(),
-    );
-
-    commands.entity(parent).add_child(widget_entity);
-
-    match field {
-        Field::LinearRgba(color) => {
-            let widget =
-                LinearRgbaOutputWidget::spawn(commands, fonts.deja_vu_sans.clone(), parent, color);
-            commands.entity(parent).add_child(widget);
-        }
-        // Add more field types here as we implement more widgets
-        _ => {}
-    }
 }

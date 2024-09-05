@@ -382,7 +382,7 @@ pub fn highlight_selection(
 
             commands
                 .entity(entity)
-                .insert(BackgroundColor(Color::srgb(0.8, 0.8, 0.8)));
+                .insert(BackgroundColor(Color::linear_rgb(0.8, 0.8, 0.8)));
         }
     }
 

@@ -1,17 +1,11 @@
-use crate::{
-    asset::FontAssets, nodes::{InputId, OutputId}, ApplicationState
+use crate::ApplicationState;
+use bevy::{ecs::system::EntityCommands, prelude::ChildBuilder, prelude::*};
+use bevy_cosmic_edit::{
+    change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig,
 };
-use bevy::{
-    color::palettes::tailwind::{SLATE_800, SLATE_900},
-    ecs::system::EntityCommands,
-    prelude::ChildBuilder,
-    prelude::*,
-};
-use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, BufferExtras, CosmicBuffer, CosmicEditPlugin, CosmicEditor, CosmicFontConfig, CosmicFontSystem, CosmicSource, Edit, FocusedWidget};
-use bevy_mod_picking::{events::{Down, Pointer}, prelude::Pickable};
+use bevy_mod_picking::prelude::Pickable;
 use context_menu::{ContextMenuPlugin, UIContext};
-use inspector::{text_input::{ControlledTextInput, TextInputHandlerInput}, InspectorPanel, InspectorPlugin};
-use petgraph::graph::NodeIndex;
+use inspector::{InspectorPanel, InspectorPlugin};
 
 pub mod context_menu;
 pub mod inspector;
@@ -37,11 +31,11 @@ impl Plugin for UiPlugin {
         ));
 
         app.add_systems(OnEnter(ApplicationState::Setup), ui_setup);
-        app.add_systems(PreUpdate, (
-            drop_text_focus,
-            change_active_editor_ui,
-            deselect_editor_on_esc,
-        ).run_if(in_state(ApplicationState::MainLoop)));
+        app.add_systems(
+            PreUpdate,
+            (change_active_editor_ui, deselect_editor_on_esc)
+                .run_if(in_state(ApplicationState::MainLoop)),
+        );
     }
 }
 
@@ -62,8 +56,6 @@ impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
         self.spawn(bundle)
     }
 }
-
-
 
 #[derive(Component)]
 pub struct UiRoot;
@@ -107,69 +99,7 @@ fn ui_setup(mut commands: Commands) {
 
     let inspector_panel = InspectorPanel::spawn(&mut commands);
 
-    commands.entity(ui_root)
+    commands
+        .entity(ui_root)
         .push_children(&[node_edit_area, inspector_panel]);
-}
-
-
-// only applies to text inputs - this is bevy-cosmic-edit specific
-fn drop_text_focus(
-    mut commands: Commands,
-    mut ev_down: EventReader<Pointer<Down>>,
-    mut focused: ResMut<FocusedWidget>,
-    q_cosmic_source: Query<(&CosmicSource)>,
-    q_cosmic_edit: Query<(&CosmicBuffer, Option<&ControlledTextInput>)>,
-    mut old_focused: Local<Option<Entity>>,
-    q_cosmic_editor: Query<&CosmicEditor>,
-) {
-    let mut clicked_on_not_a_text_input = false;
-
-    for event in ev_down.read() {
-        if !q_cosmic_source.contains(event.target) {
-            clicked_on_not_a_text_input = true;
-        }
-    }
-
-    let mut field_to_update: Option<Entity> = None;
-
-    if clicked_on_not_a_text_input {
-        field_to_update = focused.0;    // signal to update the backing data for the field that's losing focus
-        focused.0 = None;   // drop the focus because we clicked on not a text input
-    } else {
-        // focus still might've changed
-        match (focused.0, *old_focused) {
-            (Some(focus), Some(old)) => {
-                if focus != old {
-                    field_to_update = Some(old);
-                }
-            },
-            (None, Some(old)) => {
-                field_to_update = Some(old);
-            },
-            _ => {
-                field_to_update = None;
-            },
-            
-        }
-    }
-    
-    *old_focused = focused.0;
-
-    if field_to_update.is_some() {
-        if let Some(field_to_update) = field_to_update {
-            let (_, maybe_controlled) = q_cosmic_edit.get(field_to_update).unwrap();
-            if let Some(controlled) = maybe_controlled {
-                let editor = q_cosmic_editor.single();
-                editor.with_buffer(|buffer| {
-                    println!("{:?}", buffer.get_text());
-                    let input = TextInputHandlerInput {
-                        value: buffer.get_text(),
-                        controlling_widget: controlled.controlling_widget,
-                    };
-                    commands.run_system_with_input::<TextInputHandlerInput>(controlled.handler, input)
-                });
-                
-            }
-        }
-    }
 }
