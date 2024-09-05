@@ -70,8 +70,8 @@ impl LinearRgbaInputWidget {
 
         let red = TextInputWidget::spawn(commands, font_system, font.clone(), "R", value.red, callbacks.red_changed, widget_entity);
         let green = TextInputWidget::spawn(commands, font_system, font.clone(), "G", value.green, callbacks.red_changed, widget_entity); // todo not red lol
-        let blue = TextInputWidget::spawn(commands, font_system, font.clone(), "B", value.blue, callbacks.red_changed, widget_entity);
-        let alpha = TextInputWidget::spawn(commands, font_system, font.clone(), "A", value.alpha, callbacks.red_changed, widget_entity);
+        let blue = TextInputWidget::spawn(commands, font_system, font.clone(), "B", value.blue, callbacks.red_changed, widget_entity); // todo not red lol
+        let alpha = TextInputWidget::spawn(commands, font_system, font.clone(), "A", value.alpha, callbacks.red_changed, widget_entity); // todo not red lol
     
         commands
             .entity(widget_entity)

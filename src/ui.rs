@@ -7,7 +7,7 @@ use bevy::{
     prelude::ChildBuilder,
     prelude::*,
 };
-use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, BufferExtras, CosmicBuffer, CosmicEditPlugin, CosmicFontConfig, CosmicFontSystem, CosmicSource, FocusedWidget};
+use bevy_cosmic_edit::{change_active_editor_ui, deselect_editor_on_esc, BufferExtras, CosmicBuffer, CosmicEditPlugin, CosmicEditor, CosmicFontConfig, CosmicFontSystem, CosmicSource, Edit, FocusedWidget};
 use bevy_mod_picking::{events::{Down, Pointer}, prelude::Pickable};
 use context_menu::{ContextMenuPlugin, UIContext};
 use inspector::{text_input::{ControlledTextInput, TextInputHandlerInput}, InspectorPanel, InspectorPlugin};
@@ -37,7 +37,7 @@ impl Plugin for UiPlugin {
         ));
 
         app.add_systems(OnEnter(ApplicationState::Setup), ui_setup);
-        app.add_systems(Update, (
+        app.add_systems(PreUpdate, (
             drop_text_focus,
             change_active_editor_ui,
             deselect_editor_on_esc,
@@ -120,6 +120,7 @@ fn drop_text_focus(
     q_cosmic_source: Query<(&CosmicSource)>,
     q_cosmic_edit: Query<(&CosmicBuffer, Option<&ControlledTextInput>)>,
     mut old_focused: Local<Option<Entity>>,
+    q_cosmic_editor: Query<&CosmicEditor>,
 ) {
     let mut clicked_on_not_a_text_input = false;
 
@@ -156,15 +157,19 @@ fn drop_text_focus(
 
     if field_to_update.is_some() {
         if let Some(field_to_update) = field_to_update {
-            let (buffer, maybe_controlled) = q_cosmic_edit.get(field_to_update).unwrap();
+            let (_, maybe_controlled) = q_cosmic_edit.get(field_to_update).unwrap();
             if let Some(controlled) = maybe_controlled {
-                let input = TextInputHandlerInput {
-                    value: buffer.0.get_text(),
-                    controlling_widget: controlled.controlling_widget,
-                };
-                commands.run_system_with_input::<TextInputHandlerInput>(controlled.handler, input)
+                let editor = q_cosmic_editor.single();
+                editor.with_buffer(|buffer| {
+                    println!("{:?}", buffer.get_text());
+                    let input = TextInputHandlerInput {
+                        value: buffer.get_text(),
+                        controlling_widget: controlled.controlling_widget,
+                    };
+                    commands.run_system_with_input::<TextInputHandlerInput>(controlled.handler, input)
+                });
+                
             }
         }
     }
-    
 }

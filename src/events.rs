@@ -55,6 +55,8 @@ impl Plugin for EventsPlugin {
         app.observe(add_edge);
         app.observe(remove_edge);
         app.observe(handle_undoable);
+        app.observe(handle_set_input_field);
+        app.observe(handle_set_output_field);
     }
 }
 
@@ -120,7 +122,7 @@ pub enum UndoableEvent {
     SetOutputField(SetOutputFieldEvent),
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct SetInputFieldEvent {
     pub node: NodeIndex,
     pub input_id: InputId,
@@ -128,7 +130,7 @@ pub struct SetInputFieldEvent {
     pub new_value: Field,
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct SetOutputFieldEvent {
     pub node: NodeIndex,
     pub output_id: OutputId,
@@ -136,25 +138,25 @@ pub struct SetOutputFieldEvent {
     pub new_value: Field,
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct AddEdgeEvent {
     pub start_port: Entity,
     pub end_port: Entity,
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct RemoveEdgeEvent {
     pub start_port: Entity,
     pub end_port: Entity,
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct SetInputVisibilityEvent {
     pub input_port: Entity,
     pub is_visible: bool,
 }
 
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Debug)]
 pub struct SetOutputVisibilityEvent {
     pub output_port: Entity,
     pub is_visible: bool,
@@ -414,5 +416,43 @@ fn remove_edge(
         }
     } else {
         println!("Error: Could not find one or both of the ports");
+    }
+}
+
+fn handle_set_input_field(
+    trigger: Trigger<SetInputFieldEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    
+    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
+        println!("ok setting input {:?}", trigger.event());
+        if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
+            eprintln!("Failed to set input field: {}", e);
+            return;
+        }
+        ev_process_pipeline.send(RequestProcessPipeline);
+    } else {
+        eprintln!("Node not found for input field update");
+    }
+}
+
+fn handle_set_output_field(
+    trigger: Trigger<SetOutputFieldEvent>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    
+    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
+        if let Err(e) = node.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
+            eprintln!("Failed to set output field: {}", e);
+            return;
+        }
+        
+        ev_process_pipeline.send(RequestProcessPipeline);
+    } else {
+        eprintln!("Node not found for output field update");
     }
 }
