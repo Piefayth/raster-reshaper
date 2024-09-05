@@ -427,7 +427,6 @@ fn handle_set_input_field(
     let mut pipeline = q_pipeline.single_mut();
     
     if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        println!("ok setting input {:?}", trigger.event());
         if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
             eprintln!("Failed to set input field: {}", e);
             return;

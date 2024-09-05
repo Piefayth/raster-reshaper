@@ -291,8 +291,6 @@ fn trigger_inspector_updates(
     let graph = &q_graph.single().graph;
 
     // TODO - Don't update boxes that are currently focused.
-    //  and when boxes are defocused, write back to the graph
-    // otherwise graph cahnges will blow out your current input lmao dont delete this again til u fix
 
     if let Ok(panel) = q_inspector_panel.get_single() {
         for &node_entity in panel.displayed_nodes.iter() {  // for every node shown in inspector

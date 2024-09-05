@@ -93,7 +93,7 @@ fn update_nodes(
                         }
                     }
                     GraphNode::Color(color_node) => {
-                        // well if the color changed i guess we'd update the little preview?
+                        material.background_color = color_node.out_color;
                     }
                 }
             }
