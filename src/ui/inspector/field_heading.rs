@@ -1,7 +1,5 @@
 use bevy::{
-    color::palettes::{
-        css::{GRAY, GREEN, RED},
-    },
+    color::palettes::css::{GRAY, GREEN, RED},
     prelude::*,
     ui::Direction as UIDirection,
 };
@@ -10,16 +8,18 @@ use bevy_mod_picking::{
     events::{Click, Down, Pointer},
     prelude::{On, Pickable, PointerButton},
 };
-use petgraph::{
-    visit::EdgeRef,
-    Direction,
-};
+use petgraph::{visit::EdgeRef, Direction};
 
 use crate::{
-    events::{RemoveEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, nodes::{
+    events::{
+        RemoveEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEvent,
+    },
+    graph::DisjointPipelineGraph,
+    nodes::{
         ports::{InputPort, OutputPort},
         NodeTrait, OutputId, Selected,
-    }, ApplicationState
+    },
+    ApplicationState,
 };
 
 use super::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch};
@@ -119,8 +119,6 @@ impl FieldHeadingWidget {
     }
 }
 
-
-
 pub fn on_click_input_visibility_switch(
     mut commands: Commands,
     mut down_events: EventReader<Pointer<Down>>,
@@ -138,15 +136,11 @@ pub fn on_click_input_visibility_switch(
                 if let Some(node) = pipeline.graph.node_weight(port.node_index) {
                     if let Some(meta) = node.get_input_meta(port.input_id) {
                         let new_visibility = !meta.visible;
-                        let mut events = Vec::new();
 
-                        events.push(
-                            SetInputVisibilityEvent {
-                                input_port: switch.input_port,
-                                is_visible: new_visibility,
-                            }
-                            .into(),
-                        );
+                        commands.trigger(UndoableEvent::from(SetInputVisibilityEvent {
+                            input_port: switch.input_port,
+                            is_visible: new_visibility,
+                        }));
 
                         if !new_visibility {
                             for edge in pipeline
@@ -160,19 +154,14 @@ pub fn on_click_input_visibility_switch(
                                                 && out_port.output_id == edge.weight().from_field
                                         })
                                     {
-                                        events.push(
-                                            RemoveEdgeEvent {
-                                                start_port: output_entity,
-                                                end_port: switch.input_port,
-                                            }
-                                            .into(),
-                                        );
+                                        commands.trigger(UndoableEvent::from(RemoveEdgeEvent {
+                                            start_port: output_entity,
+                                            end_port: switch.input_port,
+                                        }));
                                     }
                                 }
                             }
                         }
-
-                        commands.trigger(UndoableEventGroup { events });
                     }
                 }
             }
@@ -197,15 +186,11 @@ pub fn on_click_output_visibility_switch(
                 if let Some(node) = pipeline.graph.node_weight(port.node_index) {
                     if let Some(meta) = node.get_output_meta(port.output_id) {
                         let new_visibility = !meta.visible;
-                        let mut events = Vec::new();
 
-                        events.push(
-                            SetOutputVisibilityEvent {
-                                output_port: switch.output_port,
-                                is_visible: new_visibility,
-                            }
-                            .into(),
-                        );
+                        commands.trigger(UndoableEvent::from(SetOutputVisibilityEvent {
+                            output_port: switch.output_port,
+                            is_visible: new_visibility,
+                        }));
 
                         if !new_visibility {
                             for edge in pipeline
@@ -219,19 +204,14 @@ pub fn on_click_output_visibility_switch(
                                                 && in_port.input_id == edge.weight().to_field
                                         })
                                     {
-                                        events.push(
-                                            RemoveEdgeEvent {
-                                                start_port: switch.output_port,
-                                                end_port: input_entity,
-                                            }
-                                            .into(),
-                                        );
+                                        commands.trigger(UndoableEvent::from(RemoveEdgeEvent {
+                                            start_port: switch.output_port,
+                                            end_port: input_entity,
+                                        }));
                                     }
                                 }
                             }
                         }
-
-                        commands.trigger(UndoableEventGroup { events });
                     }
                 }
             }

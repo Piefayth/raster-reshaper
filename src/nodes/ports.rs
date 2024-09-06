@@ -1,5 +1,5 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{AddEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{AddEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEvent}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
         context_menu::{InputPortContext, OutputPortContext, UIContext}, inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch}, Spawner
     }, ApplicationState
 };
@@ -317,7 +317,7 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(input_port) = maybe_hovered_input {
-                        commands.trigger(UndoableEventGroup::from_event(AddEdgeEvent {
+                        commands.trigger(UndoableEvent::from(AddEdgeEvent {
                             start_port,
                             end_port: input_port,
                         }));
@@ -325,7 +325,7 @@ pub fn handle_port_selection(
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
-                        commands.trigger(UndoableEventGroup::from_event(AddEdgeEvent {
+                        commands.trigger(UndoableEvent::from(AddEdgeEvent {
                             start_port: output_port,
                             end_port: start_port,
                         }));

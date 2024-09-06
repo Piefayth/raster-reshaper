@@ -17,7 +17,7 @@ use bevy_mod_picking::{
 };
 use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
 use crate::{
-    asset::FontAssets, events::{RemoveEdgeEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, OutputId, RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind}, ApplicationState
+    asset::FontAssets, events::{RemoveEdgeEvent, UndoableEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, OutputId, RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind}, ApplicationState
 };
 
 use super::{Spawner, UiRoot};
@@ -427,7 +427,7 @@ fn detatch_input(
             if let Some((output_port_entity, _)) = q_output_ports.iter().find(|(_, port)| {
                 port.node_index == edge.source() && port.output_id == edge.weight().from_field
             }) {
-                commands.trigger(UndoableEventGroup::from_event(RemoveEdgeEvent {
+                commands.trigger(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
                     start_port: output_port_entity,
                     end_port: target_port_entity,
                 }));
@@ -457,8 +457,6 @@ fn detatch_output(
         .iter()
         .find(|(_, port)| port.node_index == target_node && port.output_id == target_port)
     {
-        let mut events = Vec::new();
-
         for edge in pipeline
             .graph
             .edges_directed(target_node, Direction::Outgoing)
@@ -468,19 +466,12 @@ fn detatch_output(
                     in_port.node_index == edge.target()
                         && in_port.input_id == edge.weight().to_field
                 }) {
-                    events.push(
-                        RemoveEdgeEvent {
-                            start_port: target_port_entity,
-                            end_port: input_entity,
-                        }
-                        .into(),
-                    );
+                    commands.trigger(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
+                        start_port: target_port_entity,
+                        end_port: input_entity,
+                    }));
                 }
             }
-        }
-
-        if !events.is_empty() {
-            commands.trigger(UndoableEventGroup { events });
         }
     }
 }

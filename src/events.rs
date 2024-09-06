@@ -1,29 +1,15 @@
 use crate::{
     asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
     }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeTrait, OutputId}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
 };
 use bevy::{
-    color::palettes::{
-        css::{MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
-        tailwind::{BLUE_600, GRAY_200, GRAY_400},
-    },
     prelude::*,
-    render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle},
     ui::Direction as UIDirection,
-    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
-    focus::PickingInteraction,
     prelude::{Pickable, PointerButton},
-    PickableBundle,
 };
-use petgraph::Direction;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
-use wgpu::TextureFormat;
 
 
 // Maybe call this "DataEventsPlugin"? CoreEvents? What's "EVENTS"?
@@ -45,10 +31,14 @@ impl Plugin for EventsPlugin {
             (handle_undo_redo_input).run_if(in_state(ApplicationState::MainLoop))
         );
 
+        app.add_systems(Last, flush_undoable_events);
+
         app.insert_resource(HistoricalActions {
             undo_stack: vec![],
             redo_stack: vec![],
         });
+
+        app.init_resource::<CurrentFrameUndoableEvents>();
 
         app.add_event::<RequestUndo>();
         app.add_event::<RequestRedo>();
@@ -57,22 +47,6 @@ impl Plugin for EventsPlugin {
         app.observe(handle_undoable);
         app.observe(handle_set_input_field);
         app.observe(handle_set_output_field);
-    }
-}
-
-#[derive(Event, Clone)]
-pub struct UndoableEventGroup {
-    pub events: Vec<UndoableEvent>,
-}
-
-impl UndoableEventGroup {
-    pub fn from_event<E>(event: E) -> Self
-    where
-        E: Into<UndoableEvent>,
-    {
-        UndoableEventGroup {
-            events: vec![event.into()],
-        }
     }
 }
 
@@ -112,7 +86,7 @@ impl From<SetOutputFieldEvent> for UndoableEvent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Event, Clone)]
 pub enum UndoableEvent {
     AddEdge(AddEdgeEvent),
     RemoveEdge(RemoveEdgeEvent),
@@ -164,39 +138,56 @@ pub struct SetOutputVisibilityEvent {
 
 #[derive(Resource)]
 pub struct HistoricalActions {
-    pub undo_stack: Vec<UndoableEventGroup>,
-    pub redo_stack: Vec<UndoableEventGroup>,
+    pub undo_stack: Vec<Vec<UndoableEvent>>,
+    pub redo_stack: Vec<Vec<UndoableEvent>>,
 }
 
+#[derive(Resource, Default)]
+pub struct CurrentFrameUndoableEvents {
+    events: Vec<UndoableEvent>,
+}
+
+// what if the callers didn't have to know about groups
+// what if handle_undoable got triggered by any UndoableEvent
+// and automatically added it to the group for the frame
 fn handle_undoable(
-    trigger: Trigger<UndoableEventGroup>,
+    trigger: Trigger<UndoableEvent>,
+    mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
     mut commands: Commands,
+) {
+    // Add the event to the current frame's events
+    current_frame_events.events.push(trigger.event().clone());
+
+    // Forward the event to the regular handlers
+    match trigger.event() {
+        UndoableEvent::AddEdge(e) => {
+            commands.trigger(e.clone());
+        }
+        UndoableEvent::RemoveEdge(e) => {
+            commands.trigger(e.clone());
+        }
+        UndoableEvent::SetInputVisibility(e) => {
+            commands.trigger(e.clone());
+        }
+        UndoableEvent::SetOutputVisibility(e) => {
+            commands.trigger(e.clone());
+        }
+        UndoableEvent::SetInputField(e) => {
+            commands.trigger(e.clone());
+        }
+        UndoableEvent::SetOutputField(e) => {
+            commands.trigger(e.clone());
+        }
+    }
+}
+
+fn flush_undoable_events(
+    mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
     mut history: ResMut<HistoricalActions>,
 ) {
-    // store the event in the undo stack then forward it to the regular handlers
-    history.undo_stack.push(trigger.event().clone());
-
-    for undoable_event in &trigger.event().events {
-        match undoable_event {
-            UndoableEvent::AddEdge(e) => {
-                commands.trigger(e.clone());
-            }
-            UndoableEvent::RemoveEdge(e) => {
-                commands.trigger(e.clone());
-            }
-            UndoableEvent::SetInputVisibility(e) => {
-                commands.trigger(e.clone());
-            }
-            UndoableEvent::SetOutputVisibility(e) => {
-                commands.trigger(e.clone());
-            }
-            UndoableEvent::SetInputField(e) => {
-                commands.trigger(e.clone());
-            },
-            UndoableEvent::SetOutputField(e) => {
-                commands.trigger(e.clone());
-            },
-        }
+    if !current_frame_events.events.is_empty() {
+        let events = std::mem::take(&mut current_frame_events.events);
+        history.undo_stack.push(events);
     }
 }
 
@@ -228,8 +219,8 @@ fn handle_undo(
     mut history: ResMut<HistoricalActions>,
 ) {
     for _ in undo_events.read() {
-        if let Some(event_group) = history.undo_stack.pop() {
-            for event in event_group.events.iter().rev() {
+        if let Some(events) = history.undo_stack.pop() {
+            for event in events.iter().rev() {
                 match event {
                     UndoableEvent::AddEdge(e) => {
                         commands.trigger(RemoveEdgeEvent {
@@ -254,7 +245,7 @@ fn handle_undo(
                             output_port: e.output_port,
                             is_visible: !e.is_visible,
                         });
-                    },
+                    }
                     UndoableEvent::SetInputField(e) => {
                         commands.trigger(SetInputFieldEvent {
                             node: e.node,
@@ -262,7 +253,7 @@ fn handle_undo(
                             old_value: e.new_value.clone(),
                             new_value: e.old_value.clone(),
                         });
-                    },
+                    }
                     UndoableEvent::SetOutputField(e) => {
                         commands.trigger(SetOutputFieldEvent {
                             node: e.node,
@@ -270,10 +261,10 @@ fn handle_undo(
                             old_value: e.new_value.clone(),
                             new_value: e.old_value.clone(),
                         });
-                    },
+                    }
                 }
             }
-            history.redo_stack.push(event_group);
+            history.redo_stack.push(events);
         }
     }
 }
@@ -284,8 +275,8 @@ fn handle_redo(
     mut history: ResMut<HistoricalActions>,
 ) {
     for _ in redo_events.read() {
-        if let Some(event_group) = history.redo_stack.pop() {
-            for event in &event_group.events {
+        if let Some(events) = history.redo_stack.pop() {
+            for event in &events {
                 match event {
                     UndoableEvent::AddEdge(e) => {
                         commands.trigger(e.clone());
@@ -307,7 +298,7 @@ fn handle_redo(
                     },
                 }
             }
-            history.undo_stack.push(event_group);
+            history.undo_stack.push(events);
         }
     }
 }
@@ -409,7 +400,6 @@ fn remove_edge(
                 }
             }
 
-            // Trigger pipeline process
             ev_process_pipeline.send(RequestProcessPipeline);
         } else {
             println!("Error: Could not find edge to remove in the graph");

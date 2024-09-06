@@ -2,7 +2,7 @@ use bevy::{ecs::system::SystemId, prelude::*};
 use bevy_cosmic_edit::{Attrs, ColorExtras, CosmicBackgroundColor, CosmicBuffer, CosmicEditBundle, CosmicFontSystem, CosmicSource, CosmicWrap, CursorColor, MaxLines, Metrics, ScrollDisabled, SelectionColor};
 use petgraph::graph::NodeIndex;
 
-use crate::{events::{SetInputFieldEvent, UndoableEventGroup}, graph::DisjointPipelineGraph, nodes::{fields::Field, FieldId, InputId, NodeDisplay, NodeTrait, OutputId}};
+use crate::{events::{SetInputFieldEvent, UndoableEvent}, graph::DisjointPipelineGraph, nodes::{fields::Field, FieldId, InputId, NodeDisplay, NodeTrait, OutputId}};
 
 use super::text_input::{RequestUpdateTextInput, TextInputHandlerInput, TextInputWidget};
 
@@ -138,7 +138,7 @@ pub fn color_input_handler<const COMPONENT: usize>(
 
         let new_value = Field::LinearRgba(color);
         
-        commands.trigger(UndoableEventGroup::from_event(SetInputFieldEvent {
+        commands.trigger(UndoableEvent::from(SetInputFieldEvent {
             node: node_display.index,
             input_id: lrgba_widget.input_id,
             new_value,
