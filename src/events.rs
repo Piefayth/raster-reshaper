@@ -145,20 +145,16 @@ pub struct HistoricalActions {
 #[derive(Resource, Default)]
 pub struct CurrentFrameUndoableEvents {
     events: Vec<UndoableEvent>,
+    is_undo_or_redo: bool,  // because we dont allow undoable events to re-fire as undoable during an undo
 }
 
-// what if the callers didn't have to know about groups
-// what if handle_undoable got triggered by any UndoableEvent
-// and automatically added it to the group for the frame
 fn handle_undoable(
     trigger: Trigger<UndoableEvent>,
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
     mut commands: Commands,
 ) {
-    // Add the event to the current frame's events
     current_frame_events.events.push(trigger.event().clone());
 
-    // Forward the event to the regular handlers
     match trigger.event() {
         UndoableEvent::AddEdge(e) => {
             commands.trigger(e.clone());
@@ -185,10 +181,12 @@ fn flush_undoable_events(
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
     mut history: ResMut<HistoricalActions>,
 ) {
-    if !current_frame_events.events.is_empty() {
+    if !current_frame_events.events.is_empty() && !current_frame_events.is_undo_or_redo {
         let events = std::mem::take(&mut current_frame_events.events);
         history.undo_stack.push(events);
     }
+
+    current_frame_events.is_undo_or_redo = false;
 }
 
 fn handle_undo_redo_input(
@@ -217,8 +215,10 @@ fn handle_undo(
     mut commands: Commands,
     mut undo_events: EventReader<RequestUndo>,
     mut history: ResMut<HistoricalActions>,
+    mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
     for _ in undo_events.read() {
+        current_frame_events.is_undo_or_redo = true;
         if let Some(events) = history.undo_stack.pop() {
             for event in events.iter().rev() {
                 match event {
@@ -273,8 +273,10 @@ fn handle_redo(
     mut commands: Commands,
     mut redo_events: EventReader<RequestRedo>,
     mut history: ResMut<HistoricalActions>,
+    mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
     for _ in redo_events.read() {
+        current_frame_events.is_undo_or_redo = true;
         if let Some(events) = history.redo_stack.pop() {
             for event in &events {
                 match event {
