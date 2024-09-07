@@ -138,12 +138,12 @@ pub fn color_input_handler<const COMPONENT: usize>(
 
         let new_value = Field::LinearRgba(color);
         
-        commands.trigger(UndoableEvent::from(SetInputFieldEvent {
+        commands.trigger(SetInputFieldEvent {
             node: node_display.index,
             input_id: lrgba_widget.input_id,
             new_value,
             old_value,
-        }));
+        });
     }
 }
 

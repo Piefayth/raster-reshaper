@@ -130,22 +130,22 @@ fn delete_node(
     trigger: Trigger<RequestDeleteNode>,
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_nodes: Query<&NodeDisplay>,
+    q_nodes: Query<(Entity, &NodeDisplay)>,
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let node = q_nodes.get(trigger.event().node).unwrap();
+    let (node_entity, node_display) = q_nodes.get(trigger.event().node).unwrap();
 
     let node_ports: Vec<Entity> = q_input_ports
         .iter()
-        .filter_map(|(entity, port)| (port.node_index == node.index).then_some(entity))
+        .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
         .chain(
             q_output_ports
                 .iter()
-                .filter_map(|(entity, port)| (port.node_index == node.index).then_some(entity)),
+                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity)),
         )
         .collect();
 
@@ -155,7 +155,7 @@ fn delete_node(
         }
     }
 
-    pipeline.graph.remove_node(node.index);
+    pipeline.graph.remove_node(node_display.index);
 
     commands.entity(trigger.event().node).despawn_recursive();
 
@@ -534,7 +534,7 @@ fn spawn_requested_node(
                 let input_port = InputPort::spawn(
                     child_builder,
                     &node,
-                    spawned_node_index,
+                    node_entity,
                     *input_id,
                     &mut port_materials,
                     &meshes,
@@ -550,7 +550,7 @@ fn spawn_requested_node(
                 let output_port = OutputPort::spawn(
                     child_builder,
                     &node,
-                    spawned_node_index,
+                    node_entity,
                     *output_id,
                     &mut port_materials,
                     &meshes,

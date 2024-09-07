@@ -1,6 +1,6 @@
 use crate::{
     asset::{
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeTrait, OutputId}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
 };
 use bevy::{
     prelude::*,
@@ -88,12 +88,13 @@ impl From<SetOutputFieldEvent> for UndoableEvent {
 
 #[derive(Event, Clone)]
 pub enum UndoableEvent {
-    AddEdge(AddEdgeEvent),
-    RemoveEdge(RemoveEdgeEvent),
-    SetInputVisibility(SetInputVisibilityEvent),
-    SetOutputVisibility(SetOutputVisibilityEvent),
-    SetInputField(SetInputFieldEvent),
-    SetOutputField(SetOutputFieldEvent),
+    AddEdge(UndoableAddEdgeEvent),
+    RemoveEdge(UndoableRemoveEdgeEvent),
+    SetInputVisibility(UndoableSetInputVisibilityEvent),
+    SetOutputVisibility(UndoableSetOutputVisibilityEventt),
+    SetInputField(UndoableSetInputFieldEvent),
+    SetOutputField(UndoableSetOutputFieldEvent),
+    // AddNode(SpecialEventTypeThatIsNotTheNormalOne)
 }
 
 #[derive(Event, Clone, Debug)]
@@ -103,6 +104,7 @@ pub struct SetInputFieldEvent {
     pub old_value: Field,
     pub new_value: Field,
 }
+type UndoableSetInputFieldEvent = SetInputFieldEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct SetOutputFieldEvent {
@@ -111,30 +113,35 @@ pub struct SetOutputFieldEvent {
     pub old_value: Field,
     pub new_value: Field,
 }
+type UndoableSetOutputFieldEvent = SetOutputFieldEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct AddEdgeEvent {
     pub start_port: Entity,
     pub end_port: Entity,
 }
+type UndoableAddEdgeEvent = AddEdgeEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct RemoveEdgeEvent {
     pub start_port: Entity,
     pub end_port: Entity,
 }
+type UndoableRemoveEdgeEvent = RemoveEdgeEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct SetInputVisibilityEvent {
     pub input_port: Entity,
     pub is_visible: bool,
 }
+type UndoableSetInputVisibilityEvent = SetInputVisibilityEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct SetOutputVisibilityEvent {
     pub output_port: Entity,
     pub is_visible: bool,
 }
+type UndoableSetOutputVisibilityEventt = SetOutputVisibilityEvent;
 
 #[derive(Resource)]
 pub struct HistoricalActions {
@@ -151,30 +158,8 @@ pub struct CurrentFrameUndoableEvents {
 fn handle_undoable(
     trigger: Trigger<UndoableEvent>,
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
-    mut commands: Commands,
 ) {
     current_frame_events.events.push(trigger.event().clone());
-
-    match trigger.event() {
-        UndoableEvent::AddEdge(e) => {
-            commands.trigger(e.clone());
-        }
-        UndoableEvent::RemoveEdge(e) => {
-            commands.trigger(e.clone());
-        }
-        UndoableEvent::SetInputVisibility(e) => {
-            commands.trigger(e.clone());
-        }
-        UndoableEvent::SetOutputVisibility(e) => {
-            commands.trigger(e.clone());
-        }
-        UndoableEvent::SetInputField(e) => {
-            commands.trigger(e.clone());
-        }
-        UndoableEvent::SetOutputField(e) => {
-            commands.trigger(e.clone());
-        }
-    }
 }
 
 fn flush_undoable_events(
@@ -186,6 +171,7 @@ fn flush_undoable_events(
         history.undo_stack.push(events);
     }
 
+    current_frame_events.events.clear();
     current_frame_events.is_undo_or_redo = false;
 }
 
@@ -308,17 +294,21 @@ fn handle_redo(
 fn add_edge(
     trigger: Trigger<AddEdgeEvent>,
     mut commands: Commands,
+    q_nodes: Query<&NodeDisplay>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_input_ports: Query<(&GlobalTransform, &InputPort)>,
     q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-
+    
     if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
         q_output_ports.get(trigger.event().start_port),
         q_input_ports.get(trigger.event().end_port),
     ) {
+        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
+        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
+
         let edge = Edge {
             from_field: start_port.output_id,
             to_field: end_port.input_id,
@@ -326,7 +316,7 @@ fn add_edge(
 
         match pipeline
             .graph
-            .add_edge_checked(start_port.node_index, end_port.node_index, edge)
+            .add_edge_checked(start_port_node_index, end_port_node_index, edge)
         {
             Ok(()) => {
                 let start = start_transform.translation().truncate();
@@ -334,8 +324,8 @@ fn add_edge(
                 let curve_points = generate_curved_line(start, end, 50);
 
                 // Get the colors from the graph nodes
-                let start_node = pipeline.graph.node_weight(start_port.node_index).unwrap();
-                let end_node = pipeline.graph.node_weight(end_port.node_index).unwrap();
+                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap();
+                let end_node = pipeline.graph.node_weight(end_port_node_index).unwrap();
                 let start_color =
                     port_color(&start_node.get_output(start_port.output_id).unwrap());
                 let end_color = port_color(&end_node.get_input(end_port.input_id).unwrap());
@@ -358,6 +348,7 @@ fn add_edge(
                 ));
 
                 // Trigger pipeline process
+                commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
                 ev_process_pipeline.send(RequestProcessPipeline);
             }
             Err(e) => {
@@ -372,6 +363,7 @@ fn add_edge(
 fn remove_edge(
     trigger: Trigger<RemoveEdgeEvent>,
     mut commands: Commands,
+    q_nodes: Query<&NodeDisplay>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<&OutputPort>,
@@ -384,10 +376,13 @@ fn remove_edge(
         q_output_ports.get(trigger.event().start_port),
         q_input_ports.get(trigger.event().end_port),
     ) {
+        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
+        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
+
         // Find the edge in the graph
         if let Some(edge_index) = pipeline
             .graph
-            .find_edge(start_port.node_index, end_port.node_index)
+            .find_edge(start_port_node_index, end_port_node_index)
         {
             // Remove the edge from the graph
             pipeline.graph.remove_edge(edge_index);
@@ -402,6 +397,7 @@ fn remove_edge(
                 }
             }
 
+            commands.trigger(UndoableEvent::RemoveEdge(trigger.event().clone()));
             ev_process_pipeline.send(RequestProcessPipeline);
         } else {
             println!("Error: Could not find edge to remove in the graph");
@@ -413,6 +409,7 @@ fn remove_edge(
 
 fn handle_set_input_field(
     trigger: Trigger<SetInputFieldEvent>,
+    mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
@@ -422,7 +419,9 @@ fn handle_set_input_field(
         if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
             eprintln!("Failed to set input field: {}", e);
             return;
-        }
+        };
+
+        commands.trigger(UndoableEvent::SetInputField(trigger.event().clone()));
         ev_process_pipeline.send(RequestProcessPipeline);
     } else {
         eprintln!("Node not found for input field update");
@@ -431,6 +430,7 @@ fn handle_set_input_field(
 
 fn handle_set_output_field(
     trigger: Trigger<SetOutputFieldEvent>,
+    mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
@@ -440,8 +440,9 @@ fn handle_set_output_field(
         if let Err(e) = node.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
             eprintln!("Failed to set output field: {}", e);
             return;
-        }
+        };
         
+        commands.trigger(UndoableEvent::SetOutputField(trigger.event().clone()));
         ev_process_pipeline.send(RequestProcessPipeline);
     } else {
         eprintln!("Node not found for output field update");

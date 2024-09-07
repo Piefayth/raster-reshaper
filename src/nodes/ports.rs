@@ -5,8 +5,7 @@ use crate::{
 };
 
 use super::{
-    fields::{Field, FieldMeta},
-    GraphNode, InputId, NodeTrait, OutputId,
+    fields::{Field, FieldMeta}, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId
 };
 use bevy::{
     color::palettes::{
@@ -58,13 +57,13 @@ pub struct RequestOutputPortRelayout {
 
 #[derive(Component)]
 pub struct InputPort {
-    pub node_index: NodeIndex,
+    pub node_entity: Entity,
     pub input_id: InputId,
 }
 
 #[derive(Component)]
 pub struct OutputPort {
-    pub node_index: NodeIndex,
+    pub node_entity: Entity,
     pub output_id: OutputId,
 }
 
@@ -72,7 +71,7 @@ impl InputPort {
     pub fn spawn(
         spawner: &mut impl Spawner,
         node: &GraphNode,
-        node_index: NodeIndex,
+        node_entity: Entity,
         input_id: InputId,
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
@@ -100,12 +99,12 @@ impl InputPort {
                 ..default()
             })
             .insert(InputPort {
-                node_index,
+                node_entity,
                 input_id,
             })
             .insert(PickableBundle::default())
             .insert(UIContext::InputPort(InputPortContext {
-                node: node_index,
+                node: node_entity,
                 port: input_id,
             }))
             .id()
@@ -116,7 +115,7 @@ impl OutputPort {
     pub fn spawn(
         spawner: &mut impl Spawner,
         node: &GraphNode,
-        node_index: NodeIndex,
+        node_entity: Entity,
         output_id: OutputId,
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
@@ -144,12 +143,12 @@ impl OutputPort {
                 ..default()
             })
             .insert(OutputPort {
-                node_index,
+                node_entity,
                 output_id,
             })
             .insert(PickableBundle::default())
             .insert(UIContext::OutputPort(OutputPortContext {
-                node: node_index,
+                node: node_entity,
                 port: output_id,
             }))
             .id()
@@ -167,6 +166,7 @@ pub struct SelectingPort {
 pub fn handle_port_selection(
     mut commands: Commands,
     mut line_query: Query<(Entity, &mut Line)>,
+    q_nodes: Query<&NodeDisplay>,
     input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
     output_port_query: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
@@ -192,7 +192,9 @@ pub fn handle_port_selection(
 
         let (port_position, direction, field) =
             if let Ok((_, transform, input, _)) = maybe_input_port {
-                let node = graph.node_weight(input.node_index).unwrap();
+                let input_node_index = q_nodes.get(input.node_entity).unwrap().index;
+
+                let node = graph.node_weight(input_node_index).unwrap();
                 let field = node.get_input(input.input_id).unwrap();
                 (
                     transform.translation().truncate(),
@@ -200,7 +202,9 @@ pub fn handle_port_selection(
                     field,
                 )
             } else if let Ok((_, transform, output, _)) = maybe_output_port {
-                let node = graph.node_weight(output.node_index).unwrap();
+                let output_node_index = q_nodes.get(output.node_entity).unwrap().index;
+
+                let node = graph.node_weight(output_node_index).unwrap();
                 let field = node.get_output(output.output_id).unwrap();
                 (
                     transform.translation().truncate(),
@@ -317,18 +321,18 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(input_port) = maybe_hovered_input {
-                        commands.trigger(UndoableEvent::from(AddEdgeEvent {
+                        commands.trigger(AddEdgeEvent {
                             start_port,
                             end_port: input_port,
-                        }));
+                        });
                     }
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
-                        commands.trigger(UndoableEvent::from(AddEdgeEvent {
+                        commands.trigger(AddEdgeEvent {
                             start_port: output_port,
                             end_port: start_port,
-                        }));
+                        });
                     }
                 }
             }
@@ -365,14 +369,16 @@ fn handle_port_hover(
 
 pub fn reposition_input_ports(
     trigger: Trigger<RequestInputPortRelayout>,
-    mut query: Query<(&mut Transform, &mut Visibility, &InputPort)>,
+    q_nodes: Query<&NodeDisplay>,
+    mut q_input_port: Query<(&mut Transform, &mut Visibility, &InputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
 ) {
     let pipeline = pipeline_query.single();
-        let input_port = q_input_ports.get(trigger.event().input_port).unwrap();
+    let input_port = q_input_ports.get(trigger.event().input_port).unwrap();
+    let input_node_index = q_nodes.get(input_port.node_entity).unwrap().index;
 
-    if let Some(node) = pipeline.graph.node_weight(input_port.node_index) {
+    if let Some(node) = pipeline.graph.node_weight(input_node_index) {
         let port_group_vertical_margin = 36.;
         let visible_inputs: Vec<_> = node
             .input_fields()
@@ -380,9 +386,9 @@ pub fn reposition_input_ports(
             .filter(|&&id| node.get_input_meta(id).unwrap().visible)
             .collect();
 
-        for (mut transform, mut visibility, port) in query
+        for (mut transform, mut visibility, port) in q_input_port
             .iter_mut()
-            .filter(|(_, _, p)| p.node_index == input_port.node_index)
+            .filter(|(_, _, p)| p.node_entity == input_port.node_entity)
         {
             let meta = node.get_input_meta(port.input_id).unwrap();
             if meta.visible {
@@ -407,14 +413,16 @@ pub fn reposition_input_ports(
 
 pub fn reposition_output_ports(
     trigger: Trigger<RequestOutputPortRelayout>,
-    mut query: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
+    q_nodes: Query<&NodeDisplay>,
+    mut q_output_port_mut: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
-    q_output_ports: Query<&OutputPort>,
+    q_output_port: Query<&OutputPort>,
 ) {
     let pipeline = pipeline_query.single();
-    let output_port = q_output_ports.get(trigger.event().output_port).unwrap();
+    let output_port = q_output_port.get(trigger.event().output_port).unwrap();
+    let output_node_index = q_nodes.get(output_port.node_entity).unwrap().index;
 
-    if let Some(node) = pipeline.graph.node_weight(output_port.node_index) {
+    if let Some(node) = pipeline.graph.node_weight(output_node_index) {
         let port_group_vertical_margin = 36.;
         let visible_outputs: Vec<_> = node
             .output_fields()
@@ -422,9 +430,9 @@ pub fn reposition_output_ports(
             .filter(|&&id| node.get_output_meta(id).unwrap().visible)
             .collect();
 
-        for (mut transform, mut visibility, port) in query
+        for (mut transform, mut visibility, port) in q_output_port_mut
             .iter_mut()
-            .filter(|(_, _, p)| p.node_index == output_port.node_index)
+            .filter(|(_, _, p)| p.node_entity == output_port.node_entity)
         {
             let meta = node.get_output_meta(port.output_id).unwrap();
             if meta.visible {
@@ -447,16 +455,21 @@ pub fn reposition_output_ports(
     }
 }
 
+
+// this should go in events?
 fn handle_input_port_visibility_change(
     trigger: Trigger<SetInputVisibilityEvent>,
     mut commands: Commands,
+    q_nodes: Query<&NodeDisplay>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_input_ports: Query<&InputPort>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     if let Ok(input_port) = q_input_ports.get(trigger.event().input_port) {
-        if let Some(node) = pipeline.graph.node_weight_mut(input_port.node_index) {
+        let input_node_index = q_nodes.get(input_port.node_entity).unwrap().index;
+
+        if let Some(node) = pipeline.graph.node_weight_mut(input_node_index) {
             if let Some(meta) = node.get_input_meta(input_port.input_id) {
                 let new_meta = FieldMeta {
                     visible: trigger.event().is_visible,
@@ -467,6 +480,8 @@ fn handle_input_port_visibility_change(
                 commands.trigger(RequestInputPortRelayout {
                     input_port: trigger.event().input_port,
                 });
+
+                commands.trigger(UndoableEvent::SetInputVisibility(trigger.event().clone()));
 
                 // Find the correct switch entity and update it
                 for (mut switch, mut background_color) in q_switches.iter_mut() {
@@ -484,13 +499,15 @@ fn handle_input_port_visibility_change(
 fn handle_output_port_visibility_change(
     trigger: Trigger<SetOutputVisibilityEvent>,
     mut commands: Commands,
+    q_nodes: Query<&NodeDisplay>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_output_ports: Query<&OutputPort>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     if let Ok(output_port) = q_output_ports.get(trigger.event().output_port) {
-        if let Some(node) = pipeline.graph.node_weight_mut(output_port.node_index) {
+        let output_node_index = q_nodes.get(output_port.node_entity).unwrap().index;
+        if let Some(node) = pipeline.graph.node_weight_mut(output_node_index) {
             if let Some(meta) = node.get_output_meta(output_port.output_id) {
                 let new_meta = FieldMeta {
                     visible: trigger.event().is_visible,
@@ -501,6 +518,8 @@ fn handle_output_port_visibility_change(
                 commands.trigger(RequestOutputPortRelayout {
                     output_port: trigger.event().output_port,
                 });
+
+                commands.trigger(UndoableEvent::SetOutputVisibility(trigger.event().clone()));
 
                 // Find the correct switch entity and update it
                 for (mut switch, mut background_color) in q_switches.iter_mut() {

@@ -12,12 +12,11 @@ use petgraph::{visit::EdgeRef, Direction};
 
 use crate::{
     events::{
-        RemoveEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEvent,
+        RemoveEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent,
     },
     graph::DisjointPipelineGraph,
     nodes::{
-        ports::{InputPort, OutputPort},
-        NodeTrait, OutputId, Selected,
+        ports::{InputPort, OutputPort}, NodeDisplay, NodeTrait, OutputId, Selected
     },
     ApplicationState,
 };
@@ -122,6 +121,7 @@ impl FieldHeadingWidget {
 pub fn on_click_input_visibility_switch(
     mut commands: Commands,
     mut down_events: EventReader<Pointer<Down>>,
+    q_nodes: Query<&NodeDisplay>,
     q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
@@ -132,32 +132,34 @@ pub fn on_click_input_visibility_switch(
             if let Ok((switch, _)) = q_switches.get(event.target) {
                 let pipeline = q_pipeline.single();
                 let port = q_input_ports.get(switch.input_port).unwrap();
+                let port_node_index = q_nodes.get(port.node_entity).unwrap().index;
 
-                if let Some(node) = pipeline.graph.node_weight(port.node_index) {
+                if let Some(node) = pipeline.graph.node_weight(port_node_index) {
                     if let Some(meta) = node.get_input_meta(port.input_id) {
                         let new_visibility = !meta.visible;
 
-                        commands.trigger(UndoableEvent::from(SetInputVisibilityEvent {
+                        commands.trigger(SetInputVisibilityEvent {
                             input_port: switch.input_port,
                             is_visible: new_visibility,
-                        }));
+                        });
 
                         if !new_visibility {
                             for edge in pipeline
                                 .graph
-                                .edges_directed(port.node_index, Direction::Incoming)
+                                .edges_directed(port_node_index, Direction::Incoming)
                             {
                                 if edge.weight().to_field == port.input_id {
                                     if let Some((output_entity, _)) =
                                         q_output_ports.iter().find(|(_, out_port)| {
-                                            out_port.node_index == edge.source()
+                                            let out_port_node_index = q_nodes.get(out_port.node_entity).unwrap().index;
+                                            out_port_node_index == edge.source()
                                                 && out_port.output_id == edge.weight().from_field
                                         })
                                     {
-                                        commands.trigger(UndoableEvent::from(RemoveEdgeEvent {
+                                        commands.trigger(RemoveEdgeEvent {
                                             start_port: output_entity,
                                             end_port: switch.input_port,
-                                        }));
+                                        });
                                     }
                                 }
                             }
@@ -172,6 +174,7 @@ pub fn on_click_input_visibility_switch(
 pub fn on_click_output_visibility_switch(
     mut commands: Commands,
     mut down_events: EventReader<Pointer<Down>>,
+    q_nodes: Query<&NodeDisplay>,
     q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,
@@ -182,32 +185,34 @@ pub fn on_click_output_visibility_switch(
             if let Ok((switch, _)) = q_switches.get(event.target) {
                 let pipeline = q_pipeline.single();
                 let port = q_output_ports.get(switch.output_port).unwrap();
+                let port_node_index = q_nodes.get(port.node_entity).unwrap().index;
 
-                if let Some(node) = pipeline.graph.node_weight(port.node_index) {
+                if let Some(node) = pipeline.graph.node_weight(port_node_index) {
                     if let Some(meta) = node.get_output_meta(port.output_id) {
                         let new_visibility = !meta.visible;
 
-                        commands.trigger(UndoableEvent::from(SetOutputVisibilityEvent {
+                        commands.trigger(SetOutputVisibilityEvent {
                             output_port: switch.output_port,
                             is_visible: new_visibility,
-                        }));
+                        });
 
                         if !new_visibility {
                             for edge in pipeline
                                 .graph
-                                .edges_directed(port.node_index, Direction::Outgoing)
+                                .edges_directed(port_node_index, Direction::Outgoing)
                             {
                                 if edge.weight().from_field == port.output_id {
                                     if let Some((input_entity, _)) =
                                         q_input_ports.iter().find(|(_, in_port)| {
-                                            in_port.node_index == edge.target()
+                                            let in_port_node_index = q_nodes.get(in_port.node_entity).unwrap().index;
+                                            in_port_node_index == edge.target()
                                                 && in_port.input_id == edge.weight().to_field
                                         })
                                     {
-                                        commands.trigger(UndoableEvent::from(RemoveEdgeEvent {
+                                        commands.trigger(RemoveEdgeEvent {
                                             start_port: switch.output_port,
                                             end_port: input_entity,
-                                        }));
+                                        });
                                     }
                                 }
                             }
