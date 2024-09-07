@@ -8,7 +8,7 @@ use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
         NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
+    }, camera::MainCamera, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent, UndoableAddNodeEvent, UndoableEvent, UndoableRemoveNodeEvent}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
 };
 use bevy::{
     color::palettes::{
@@ -45,7 +45,7 @@ pub struct NodePlugin;
 impl Plugin for NodePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PortPlugin);
-
+        app.insert_resource(NodeCount(0u32));
 
         app.add_systems(
             Update,
@@ -62,10 +62,12 @@ impl Plugin for NodePlugin {
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
 
-        app.observe(spawn_requested_node);
-        app.observe(node_z_to_top);
-        app.observe(delete_node);
-
+        app
+            .observe(add_node)
+            .observe(add_node_from_undo)
+            .observe(node_z_to_top)
+            .observe(delete_node)
+            .observe(delete_node_from_undo);
 
     }
 }
@@ -115,31 +117,21 @@ struct NodeZIndexToTop {
     node: Entity,
 }
 
-#[derive(Event, Debug, Clone)]
-pub struct RequestSpawnNode {
-    pub position: Vec2,
-    pub kind: RequestSpawnNodeKind,
-}
-
-#[derive(Event, Debug, Clone)]
-pub struct RequestDeleteNode {
-    pub node: Entity,
-}
-
 fn delete_node(
-    trigger: Trigger<RequestDeleteNode>,
+    trigger: Trigger<RemoveNodeEvent>,
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_nodes: Query<(Entity, &NodeDisplay)>,
+    q_nodes: Query<(Entity, &NodeDisplay, &Transform)>,
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let (node_entity, node_display) = q_nodes.get(trigger.event().node).unwrap();
+    let (node_entity, node_display, node_transform) = q_nodes.get(trigger.event().node_entity).unwrap();
 
-    let node_ports: Vec<Entity> = q_input_ports
+    if let Some(removed_node) = pipeline.graph.remove_node(node_display.index) {
+        let node_ports: Vec<Entity> = q_input_ports
         .iter()
         .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
         .chain(
@@ -149,17 +141,68 @@ fn delete_node(
         )
         .collect();
 
-    for (edge_line_entity, edge_line) in q_edge_lines.iter() {
-        if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
-            commands.entity(edge_line_entity).despawn();
+        for (edge_line_entity, edge_line) in q_edge_lines.iter() {
+            if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
+                commands.entity(edge_line_entity).despawn();
+                commands.trigger(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
+                    start_port: edge_line.start_port,
+                    end_port: edge_line.end_port,
+                }));
+            }
         }
+
+        // keep the entity reference stable (for undo/redo) by not despawning
+        commands.entity(trigger.event().node_entity)
+            .remove::<NodeDisplay>()
+            .insert(Visibility::Hidden);
+
+        commands.trigger(UndoableEvent::RemoveNode(UndoableRemoveNodeEvent {
+            position: node_transform.translation.truncate(),
+            node: removed_node,
+            node_entity,
+        }));
+
+        ev_process_pipeline.send(RequestProcessPipeline);
     }
+}
 
-    pipeline.graph.remove_node(node_display.index);
+fn delete_node_from_undo(
+    trigger: Trigger<UndoableRemoveNodeEvent>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    q_nodes: Query<(Entity, &NodeDisplay)>,
+    q_edge_lines: Query<(Entity, &EdgeLine)>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+    let (node_entity, node_display) = q_nodes.get(trigger.event().node_entity).unwrap();
 
-    commands.entity(trigger.event().node).despawn_recursive();
+    if let Some(_) = pipeline.graph.remove_node(node_display.index) {
+        let node_ports: Vec<Entity> = q_input_ports
+        .iter()
+        .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
+        .chain(
+            q_output_ports
+                .iter()
+                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity)),
+        )
+        .collect();
 
-    ev_process_pipeline.send(RequestProcessPipeline);
+        for (edge_line_entity, edge_line) in q_edge_lines.iter() {
+            if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
+                commands.entity(edge_line_entity).despawn();
+            }
+        }
+
+        // keep the entity reference stable (for undo/redo) by not despawning
+        commands.entity(trigger.event().node_entity)
+            .remove::<NodeDisplay>()
+            .insert(Visibility::Hidden);
+
+        ev_process_pipeline.send(RequestProcessPipeline);
+    }
 }
 
 // Moves the target node in front of all other nodes
@@ -424,8 +467,8 @@ fn update_node_border(
     }
 }
 
-fn spawn_requested_node(
-    trigger: Trigger<RequestSpawnNode>,
+fn add_node(
+    trigger: Trigger<AddNodeEvent>,
     mut commands: Commands,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
@@ -437,7 +480,7 @@ fn spawn_requested_node(
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
     mut port_materials: ResMut<Assets<PortMaterial>>,
     meshes: Res<GeneratedMeshes>,
-    mut node_count: Local<u32>,
+    mut node_count: ResMut<NodeCount>,
     fonts: Res<FontAssets>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
@@ -450,9 +493,9 @@ fn spawn_requested_node(
     }
     .origin
     .truncate()
-    .extend(*node_count as f32); // count-based z-index so that nodes always have unique z
+    .extend(node_count.0 as f32); // count-based z-index so that nodes always have unique z
 
-    *node_count += 1;
+    node_count.0 += 1;
 
     let node_entity = commands.spawn(NodeDisplay { index: 0.into() }).id();
 
@@ -513,7 +556,126 @@ fn spawn_requested_node(
             // heading text
             child_builder.spawn(Text2dBundle {
                 text: Text::from_section(
-                    node_name(&trigger.event().kind),
+                    node_kind_name(&trigger.event().kind),
+                    TextStyle {
+                        font: fonts.deja_vu_sans.clone(),
+                        font_size: 18.,
+                        color: WHITE.into(),
+                    },
+                ),
+                text_anchor: Anchor::TopLeft,
+                transform: Transform::from_xyz(
+                    (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.) + heading_text_margin_left,
+                    ((NODE_TEXTURE_DISPLAY_DIMENSION + NODE_TITLE_BAR_SIZE) / 2.)
+                        - heading_text_margin_top,
+                    0.1, // can't have identical z to parent
+                ),
+                ..default()
+            });
+            // Spawn input ports
+            for input_id in node.input_fields() {
+                let input_port = InputPort::spawn(
+                    child_builder,
+                    &node,
+                    node_entity,
+                    *input_id,
+                    &mut port_materials,
+                    &meshes,
+                );
+
+                child_builder.add_command(move |world: &mut World| {
+                    world.trigger(RequestInputPortRelayout { input_port });
+                });
+            }
+
+            // Spawn output ports
+            for output_id in node.output_fields() {
+                let output_port = OutputPort::spawn(
+                    child_builder,
+                    &node,
+                    node_entity,
+                    *output_id,
+                    &mut port_materials,
+                    &meshes,
+                );
+
+                child_builder.add_command(move |world: &mut World| {
+                    world.trigger(RequestOutputPortRelayout { output_port });
+                });
+            }
+        });
+    
+    commands.trigger(UndoableEvent::AddNode(UndoableAddNodeEvent {
+        position: world_position.truncate(),
+        node: node.clone(),
+        node_entity,
+    }));
+
+    // TODO - Does it make sense to process the whole graph here, long term?
+    // Eventually a newly-added node could have an edge at addition time, so maybe...
+    ev_process_pipeline.send(RequestProcessPipeline);
+}
+
+#[derive(Deref, DerefMut, Resource)]
+struct NodeCount(u32);
+
+fn add_node_from_undo(
+    trigger: Trigger<UndoableAddNodeEvent>,
+    mut commands: Commands,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
+    mut images: ResMut<Assets<Image>>,
+    mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
+    mut port_materials: ResMut<Assets<PortMaterial>>,
+    meshes: Res<GeneratedMeshes>,
+    mut node_count: ResMut<NodeCount>,
+    fonts: Res<FontAssets>,
+    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+) {
+    let mut pipeline = q_pipeline.single_mut();
+
+    node_count.0 += 1;
+
+    let node_entity = commands.get_or_spawn(trigger.event().node_entity).id();
+
+    let spawned_node_index = pipeline.graph.add_node(trigger.event().node.clone());
+    let node = pipeline.graph.node_weight(spawned_node_index).unwrap();
+    println!("SPAWNED NODW TIH INDEX {:?}", spawned_node_index);
+
+    commands
+        .entity(node_entity)
+        .insert(NodeDisplay {
+            index: spawned_node_index,
+        })
+        .insert(MaterialMesh2dBundle {
+            transform: Transform::from_translation(trigger.event().position.extend(node_count.0 as f32)),
+            mesh: meshes.node_display_quad.clone(),
+            material: node_display_materials.add(NodeDisplayMaterial {
+                title_bar_color: BLUE_600.into(),
+                node_texture: images.add(Image::transparent()),
+                title_bar_height: NODE_TITLE_BAR_SIZE,
+                node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
+                background_color: match node {
+                    GraphNode::Color(cn) => cn.out_color,
+                    _ => GRAY_200.into(),
+                },
+                border_width: 2.,
+                border_color: GRAY_400.into(),
+                default_border_color: GRAY_400.into(),
+                hover_border_color: GRAY_200.into(),
+                focus_border_color: ORANGE.into(),
+            }),
+            ..default()
+        })
+        .insert(UIContext::Node(node_entity))
+        .insert(Visibility::Visible)
+        .with_children(|child_builder| {
+            let heading_text_margin_left = 10.;
+            let heading_text_margin_top = 5.;
+
+            // heading text
+            child_builder.spawn(Text2dBundle {
+                text: Text::from_section(
+                    node_name(node),
                     TextStyle {
                         font: fonts.deja_vu_sans.clone(),
                         font_size: 18.,
@@ -591,9 +753,16 @@ pub struct EdgeLine {
     pub end_port: Entity,
 }
 
-fn node_name(kind: &RequestSpawnNodeKind) -> &'static str {
+fn node_kind_name(kind: &RequestSpawnNodeKind) -> &'static str {
     match kind {
         RequestSpawnNodeKind::Example => "Example",
         RequestSpawnNodeKind::Color => "Color",
+    }
+}
+
+fn node_name(kind: &GraphNode) -> &'static str {
+    match kind {
+        GraphNode::Example(_) => "Example",
+        GraphNode::Color(_) => "Color",
     }
 }

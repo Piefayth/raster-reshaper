@@ -16,10 +16,7 @@ use bevy::{
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
-    graph::{DiGraph, NodeIndex},
-    prelude::StableDiGraph,
-    visit::{EdgeRef, IntoNodeReferences},
-    Direction,
+    graph::{DiGraph, NodeIndex}, matrix_graph::Zero, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
 };
 
 pub struct GraphPlugin;
@@ -34,6 +31,7 @@ impl Plugin for GraphPlugin {
 
     
         app.add_event::<RequestProcessPipeline>();
+        app.init_resource::<PendingReprocess>();
         
     }
 }
@@ -45,6 +43,9 @@ pub struct DisjointPipelineGraph {
 
 #[derive(Component, Deref)]
 pub struct PipelineProcessTask(Task<Vec<ProcessNode>>);
+
+#[derive(Resource, Default)]
+struct PendingReprocess(bool);
 
 #[derive(Event)]
 pub struct GraphWasUpdated;
@@ -98,7 +99,7 @@ fn update_nodes(
                 }
             }
             Err(_) => {
-                panic!("Forgot to initialize display node with Sprite component.");
+                panic!("A node in the graph did not have a matching display entity.");
             }
         }
     }
@@ -134,21 +135,19 @@ fn process_pipeline(
     mut event_reader: EventReader<RequestProcessPipeline>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
-    mut q_task: Query<Entity, With<PipelineProcessTask>>,
+    q_task: Query<Entity, With<PipelineProcessTask>>,
+    mut is_pending_reprocess: ResMut<PendingReprocess>,
 ) {
-    if event_reader.read().next().is_some() {
+    let is_new_request = event_reader.read().next().is_some();
+    let is_task_in_flight = !q_task.iter().count().is_zero();
+    let should_continue = is_new_request || is_pending_reprocess.0;
+    let is_newly_pending = should_continue && is_task_in_flight && !is_pending_reprocess.0;
+
+    if should_continue && !is_task_in_flight {
         if q_pipeline.is_empty() {
             return;
         }
-
         let pipeline = q_pipeline.single();
-
-        for task_entity in q_task.iter_mut() {
-            // attempt to cancel now-invalid (due to graph change) in-flight tasks. we are gonna replace it w/ a new one
-            // dropping the task should cancel it, assuming it's properly async...
-
-            commands.entity(task_entity).despawn();
-        }
 
         let thread_pool = AsyncComputeTaskPool::get();
 
@@ -228,6 +227,15 @@ fn process_pipeline(
 
         let task = thread_pool.spawn(graph_processing_work);
         commands.spawn(PipelineProcessTask(task));
+        is_pending_reprocess.0 = false;
+    } else if is_newly_pending {
+        for task_entity in q_task.iter() {
+            // attempt to cancel now-invalid (due to graph change) in-flight tasks. we are gonna replace it w/ a new one
+            // dropping the task should cancel it, assuming it's properly async...
+            commands.entity(task_entity).despawn();
+        }
+
+        is_pending_reprocess.0 = true;
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     asset::{
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
 };
 use bevy::{
     prelude::*,
@@ -34,8 +34,8 @@ impl Plugin for EventsPlugin {
         app.add_systems(Last, flush_undoable_events);
 
         app.insert_resource(HistoricalActions {
-            undo_stack: vec![],
-            redo_stack: vec![],
+            actions: vec![],
+            current_index: 0,
         });
 
         app.init_resource::<CurrentFrameUndoableEvents>();
@@ -48,6 +48,18 @@ impl Plugin for EventsPlugin {
         app.observe(handle_set_input_field);
         app.observe(handle_set_output_field);
     }
+}
+
+#[derive(Event, Clone)]
+pub enum UndoableEvent {
+    AddNode(UndoableAddNodeEvent),
+    RemoveNode(UndoableRemoveNodeEvent),
+    AddEdge(UndoableAddEdgeEvent),
+    RemoveEdge(UndoableRemoveEdgeEvent),
+    SetInputVisibility(UndoableSetInputVisibilityEvent),
+    SetOutputVisibility(UndoableSetOutputVisibilityEvent),
+    SetInputField(UndoableSetInputFieldEvent),
+    SetOutputField(UndoableSetOutputFieldEvent),
 }
 
 impl From<AddEdgeEvent> for UndoableEvent {
@@ -86,16 +98,31 @@ impl From<SetOutputFieldEvent> for UndoableEvent {
     }
 }
 
-#[derive(Event, Clone)]
-pub enum UndoableEvent {
-    AddEdge(UndoableAddEdgeEvent),
-    RemoveEdge(UndoableRemoveEdgeEvent),
-    SetInputVisibility(UndoableSetInputVisibilityEvent),
-    SetOutputVisibility(UndoableSetOutputVisibilityEventt),
-    SetInputField(UndoableSetInputFieldEvent),
-    SetOutputField(UndoableSetOutputFieldEvent),
-    // AddNode(SpecialEventTypeThatIsNotTheNormalOne)
+#[derive(Event, Clone, Debug)]
+pub struct AddNodeEvent {
+    pub position: Vec2,
+    pub kind: RequestSpawnNodeKind,
 }
+
+#[derive(Event, Clone)]
+pub struct UndoableAddNodeEvent {
+    pub position: Vec2,
+    pub node: GraphNode,
+    pub node_entity: Entity,
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct RemoveNodeEvent {
+    pub node_entity: Entity,
+}
+
+#[derive(Event, Clone)]
+pub struct UndoableRemoveNodeEvent {
+    pub position: Vec2,
+    pub node: GraphNode,
+    pub node_entity: Entity,
+}
+
 
 #[derive(Event, Clone, Debug)]
 pub struct SetInputFieldEvent {
@@ -141,12 +168,12 @@ pub struct SetOutputVisibilityEvent {
     pub output_port: Entity,
     pub is_visible: bool,
 }
-type UndoableSetOutputVisibilityEventt = SetOutputVisibilityEvent;
+type UndoableSetOutputVisibilityEvent = SetOutputVisibilityEvent;
 
 #[derive(Resource)]
 pub struct HistoricalActions {
-    pub undo_stack: Vec<Vec<UndoableEvent>>,
-    pub redo_stack: Vec<Vec<UndoableEvent>>,
+    actions: Vec<Vec<UndoableEvent>>,
+    current_index: usize,
 }
 
 #[derive(Resource, Default)]
@@ -168,7 +195,14 @@ fn flush_undoable_events(
 ) {
     if !current_frame_events.events.is_empty() && !current_frame_events.is_undo_or_redo {
         let events = std::mem::take(&mut current_frame_events.events);
-        history.undo_stack.push(events);
+        
+        // Remove any future actions (redo actions)
+        let idx = history.current_index;
+        history.actions.truncate(idx);
+        
+        // Add the new action
+        history.actions.push(events);
+        history.current_index += 1;
     }
 
     current_frame_events.events.clear();
@@ -204,53 +238,68 @@ fn handle_undo(
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
     for _ in undo_events.read() {
-        current_frame_events.is_undo_or_redo = true;
-        if let Some(events) = history.undo_stack.pop() {
-            for event in events.iter().rev() {
-                match event {
-                    UndoableEvent::AddEdge(e) => {
-                        commands.trigger(RemoveEdgeEvent {
-                            start_port: e.start_port,
-                            end_port: e.end_port,
-                        });
-                    }
-                    UndoableEvent::RemoveEdge(e) => {
-                        commands.trigger(AddEdgeEvent {
-                            start_port: e.start_port,
-                            end_port: e.end_port,
-                        });
-                    }
-                    UndoableEvent::SetInputVisibility(e) => {
-                        commands.trigger(SetInputVisibilityEvent {
-                            input_port: e.input_port,
-                            is_visible: !e.is_visible,
-                        });
-                    }
-                    UndoableEvent::SetOutputVisibility(e) => {
-                        commands.trigger(SetOutputVisibilityEvent {
-                            output_port: e.output_port,
-                            is_visible: !e.is_visible,
-                        });
-                    }
-                    UndoableEvent::SetInputField(e) => {
-                        commands.trigger(SetInputFieldEvent {
-                            node: e.node,
-                            input_id: e.input_id,
-                            old_value: e.new_value.clone(),
-                            new_value: e.old_value.clone(),
-                        });
-                    }
-                    UndoableEvent::SetOutputField(e) => {
-                        commands.trigger(SetOutputFieldEvent {
-                            node: e.node,
-                            output_id: e.output_id,
-                            old_value: e.new_value.clone(),
-                            new_value: e.old_value.clone(),
-                        });
+        if history.current_index > 0 {
+            current_frame_events.is_undo_or_redo = true;
+            history.current_index -= 1;
+            
+            if let Some(events) = history.actions.get(history.current_index) {
+                for event in events.iter().rev() {
+                    match event {
+                        UndoableEvent::AddEdge(e) => {
+                            commands.trigger(RemoveEdgeEvent {
+                                start_port: e.start_port,
+                                end_port: e.end_port,
+                            });
+                        }
+                        UndoableEvent::RemoveEdge(e) => {
+                            commands.trigger(AddEdgeEvent {
+                                start_port: e.start_port,
+                                end_port: e.end_port,
+                            });
+                        }
+                        UndoableEvent::SetInputVisibility(e) => {
+                            commands.trigger(SetInputVisibilityEvent {
+                                input_port: e.input_port,
+                                is_visible: !e.is_visible,
+                            });
+                        }
+                        UndoableEvent::SetOutputVisibility(e) => {
+                            commands.trigger(SetOutputVisibilityEvent {
+                                output_port: e.output_port,
+                                is_visible: !e.is_visible,
+                            });
+                        }
+                        UndoableEvent::SetInputField(e) => {
+                            commands.trigger(SetInputFieldEvent {
+                                node: e.node,
+                                input_id: e.input_id,
+                                old_value: e.new_value.clone(),
+                                new_value: e.old_value.clone(),
+                            });
+                        }
+                        UndoableEvent::SetOutputField(e) => {
+                            commands.trigger(SetOutputFieldEvent {
+                                node: e.node,
+                                output_id: e.output_id,
+                                old_value: e.new_value.clone(),
+                                new_value: e.old_value.clone(),
+                            });
+                        }
+                        UndoableEvent::AddNode(e) => {
+                            commands.trigger(RemoveNodeEvent {
+                                node_entity: e.node_entity,
+                            });
+                        },
+                        UndoableEvent::RemoveNode(e) => {
+                            commands.trigger(UndoableAddNodeEvent {
+                                position: e.position,
+                                node: e.node.clone(),
+                                node_entity: e.node_entity,
+                            })
+                        },
                     }
                 }
             }
-            history.redo_stack.push(events);
         }
     }
 }
@@ -262,31 +311,41 @@ fn handle_redo(
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
     for _ in redo_events.read() {
-        current_frame_events.is_undo_or_redo = true;
-        if let Some(events) = history.redo_stack.pop() {
-            for event in &events {
-                match event {
-                    UndoableEvent::AddEdge(e) => {
-                        commands.trigger(e.clone());
+        if history.current_index < history.actions.len() {
+            current_frame_events.is_undo_or_redo = true;
+            
+            if let Some(events) = history.actions.get(history.current_index) {
+                for event in events {
+                    match event {
+                        UndoableEvent::AddEdge(e) => {
+                            commands.trigger(e.clone());
+                        }
+                        UndoableEvent::RemoveEdge(e) => {
+                            commands.trigger(e.clone());
+                        }
+                        UndoableEvent::SetInputVisibility(e) => {
+                            commands.trigger(e.clone());
+                        }
+                        UndoableEvent::SetOutputVisibility(e) => {
+                            commands.trigger(e.clone());
+                        }
+                        UndoableEvent::SetInputField(e) => {
+                            commands.trigger(e.clone());
+                        },
+                        UndoableEvent::SetOutputField(e) => {
+                            commands.trigger(e.clone());
+                        },
+                        UndoableEvent::AddNode(e) => {
+                            commands.trigger(e.clone())
+                        },
+                        UndoableEvent::RemoveNode(e) => {
+                            commands.trigger(e.clone())
+                        },
                     }
-                    UndoableEvent::RemoveEdge(e) => {
-                        commands.trigger(e.clone());
-                    }
-                    UndoableEvent::SetInputVisibility(e) => {
-                        commands.trigger(e.clone());
-                    }
-                    UndoableEvent::SetOutputVisibility(e) => {
-                        commands.trigger(e.clone());
-                    }
-                    UndoableEvent::SetInputField(e) => {
-                        commands.trigger(e.clone());
-                    },
-                    UndoableEvent::SetOutputField(e) => {
-                        commands.trigger(e.clone());
-                    },
                 }
             }
-            history.undo_stack.push(events);
+            
+            history.current_index += 1;
         }
     }
 }
@@ -384,6 +443,9 @@ fn remove_edge(
             .graph
             .find_edge(start_port_node_index, end_port_node_index)
         {
+            // if you are undoing and redoing these indices will be false
+            // because fuck you that's why
+
             // Remove the edge from the graph
             pipeline.graph.remove_edge(edge_index);
 

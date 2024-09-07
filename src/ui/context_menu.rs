@@ -17,7 +17,7 @@ use bevy_mod_picking::{
 };
 use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
 use crate::{
-    asset::FontAssets, events::RemoveEdgeEvent, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestDeleteNode, RequestSpawnNode, RequestSpawnNodeKind}, ApplicationState
+    asset::FontAssets, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestSpawnNodeKind}, ApplicationState
 };
 
 use super::{Spawner, UiRoot};
@@ -107,7 +107,7 @@ impl ContextMenu {
                         child_builder,
                         "Example",
                         font.clone(),
-                        RequestSpawnNode {
+                        AddNodeEvent {
                             position: cursor_pos,
                             kind: RequestSpawnNodeKind::Example,
                         },
@@ -116,7 +116,7 @@ impl ContextMenu {
                         child_builder,
                         "Color",
                         font.clone(),
-                        RequestSpawnNode {
+                        AddNodeEvent {
                             position: cursor_pos,
                             kind: RequestSpawnNodeKind::Color,
                         },
@@ -132,8 +132,8 @@ impl ContextMenu {
                         child_builder,
                         "Delete",
                         font.clone(),
-                        RequestDeleteNode {
-                            node: *entity,
+                        RemoveNodeEvent {
+                            node_entity: *entity,
                         },
                     );
                 });
