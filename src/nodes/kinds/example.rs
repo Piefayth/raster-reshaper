@@ -23,16 +23,36 @@ use bevy::{
     utils::HashMap,
 };
 
-use crate::{nodes::{fields::{Field, FieldMeta}, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, InputId}, setup::{CustomGpuDevice, CustomGpuQueue}};
+use crate::{
+    nodes::{
+        fields::{Field, FieldMeta},
+        macros::macros::declare_node,
+        shared::{Vertex, U32_SIZE},
+        InputId,
+    },
+    setup::{CustomGpuDevice, CustomGpuQueue},
+};
 
 declare_node!(
     name: ExampleNode,
     fields: {
         #[entity] entity: Entity,
-        #[input] texture_extents: Extent3d   { meta: FieldMeta { visible: false }},
-        #[input] texture_format: TextureFormat  { meta: FieldMeta { visible: false }},
-        #[input] triangle_color: LinearRgba   { meta: FieldMeta { visible: true }},
-        #[output] output_image: Option<Image>  { meta: FieldMeta { visible: true }},
+        #[input] texture_extents: Extent3d   { meta: FieldMeta { 
+            visible: false, 
+            storage: Field::Extent3d(Extent3d { ..default() }) 
+        }},
+        #[input] texture_format: TextureFormat  { meta: FieldMeta { 
+            visible: false, 
+            storage: Field::TextureFormat(TextureFormat::Rgba8Unorm) 
+        }},
+        #[input] triangle_color: LinearRgba   { meta: FieldMeta { 
+            visible: true, 
+            storage: Field::LinearRgba(Color::WHITE.into())
+        }},
+        #[output] output_image: Option<Image>  { meta: FieldMeta { 
+            visible: true , 
+            storage: Field::Image(None),
+        }},
         render_device: CustomGpuDevice,
         render_queue: CustomGpuQueue,
         render_pipeline: Box<RenderPipeline>,

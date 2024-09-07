@@ -131,6 +131,7 @@ fn poll_processed_pipeline(
 }
 
 // Begin a new evaluation of all the nodes in the graph
+// Enfroces only one execution at a time
 fn process_pipeline(
     mut event_reader: EventReader<RequestProcessPipeline>,
     mut commands: Commands,

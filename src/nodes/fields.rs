@@ -20,6 +20,7 @@ define_field_enum! {
 #[derive(Clone, Debug)]
 pub struct FieldMeta {
     pub visible: bool,
+    pub storage: Field,
 }
 
 impl TryFrom<Field> for u32 {
