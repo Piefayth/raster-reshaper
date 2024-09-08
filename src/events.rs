@@ -47,6 +47,7 @@ impl Plugin for EventsPlugin {
         app.observe(handle_undoable);
         app.observe(handle_set_input_field);
         app.observe(handle_set_output_field);
+        app.observe(handle_undoable_drag_node);
     }
 }
 
@@ -60,6 +61,7 @@ pub enum UndoableEvent {
     SetOutputVisibility(UndoableSetOutputVisibilityEvent),
     SetInputField(UndoableSetInputFieldEvent),
     SetOutputField(UndoableSetOutputFieldEvent),
+    DragNode(UndoableDragNodeEvent),
 }
 
 impl From<AddEdgeEvent> for UndoableEvent {
@@ -98,6 +100,12 @@ impl From<SetOutputFieldEvent> for UndoableEvent {
     }
 }
 
+impl From<UndoableDragNodeEvent> for UndoableEvent {
+    fn from(event: UndoableDragNodeEvent) -> Self {
+        UndoableEvent::DragNode(event)
+    }
+}
+
 #[derive(Event, Clone, Debug)]
 pub struct AddNodeEvent {
     pub position: Vec2,
@@ -122,7 +130,6 @@ pub struct UndoableRemoveNodeEvent {
     pub node: GraphNode,
     pub node_entity: Entity,
 }
-
 
 #[derive(Event, Clone, Debug)]
 pub struct SetInputFieldEvent {
@@ -169,6 +176,13 @@ pub struct SetOutputVisibilityEvent {
     pub is_visible: bool,
 }
 type UndoableSetOutputVisibilityEvent = SetOutputVisibilityEvent;
+
+#[derive(Event, Clone, Debug)]
+pub struct UndoableDragNodeEvent {
+    pub node_entity: Entity,
+    pub old_position: Vec3,
+    pub new_position: Vec3,
+}
 
 #[derive(Resource)]
 pub struct HistoricalActions {
@@ -297,6 +311,13 @@ fn handle_undo(
                                 node_entity: e.node_entity,
                             })
                         },
+                        UndoableEvent::DragNode(e) => {
+                            commands.trigger(UndoableDragNodeEvent {
+                                node_entity: e.node_entity,
+                                old_position: e.new_position,
+                                new_position: e.old_position,
+                            })
+                        },
                     }
                 }
             }
@@ -339,8 +360,11 @@ fn handle_redo(
                             commands.trigger(e.clone())
                         },
                         UndoableEvent::RemoveNode(e) => {
-                            commands.trigger(e.clone())
+                            commands.trigger(e.clone());
                         },
+                        UndoableEvent::DragNode(e) => {
+                            commands.trigger(e.clone());
+                        }
                     }
                 }
             }
@@ -520,5 +544,14 @@ fn handle_set_output_field(
         }
     } else {
         eprintln!("Node not found for output field update");
+    }
+}
+
+fn handle_undoable_drag_node(
+    trigger: Trigger<UndoableDragNodeEvent>,
+    mut node_query: Query<&mut Transform, With<NodeDisplay>>,
+) {
+    if let Ok(mut transform) = node_query.get_mut(trigger.event().node_entity) {
+        transform.translation = trigger.event().new_position;
     }
 }

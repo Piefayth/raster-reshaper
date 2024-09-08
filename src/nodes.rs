@@ -8,18 +8,13 @@ use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
         NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    }, camera::MainCamera, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent, UndoableAddNodeEvent, UndoableEvent, UndoableRemoveNodeEvent}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
+    }, camera::MainCamera, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent, UndoableAddNodeEvent, UndoableDragNodeEvent, UndoableEvent, UndoableRemoveNodeEvent}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
 };
 use bevy::{
     color::palettes::{
         css::{MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
         tailwind::{BLUE_600, GRAY_200, GRAY_400},
-    },
-    prelude::*,
-    render::render_resource::Source,
-    sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle},
-    ui::Direction as UIDirection,
-    window::PrimaryWindow,
+    }, prelude::*, render::render_resource::Source, sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle}, ui::Direction as UIDirection, utils::HashMap, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
@@ -238,31 +233,80 @@ fn node_z_to_top(
 }
 
 fn handle_node_drag(
-    mut node_query: Query<(&mut Transform, Option<&Selected>), With<NodeDisplay>>,
+    mut commands: Commands,
+    mut node_query: Query<(Entity, &mut Transform, Option<&Selected>), With<NodeDisplay>>,
     camera_query: Query<&OrthographicProjection>,
+    mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_events: EventReader<Pointer<Drag>>,
+    mut drag_end_events: EventReader<Pointer<DragEnd>>,
+    mut drag_info: Local<Option<HashMap<Entity, UndoableDragNodeEvent>>>,
 ) {
     let projection = camera_query.single();
     let camera_scale = projection.scale;
 
+    // On drag start, initialize the map with the entity and the selected entities
+    for event in drag_start_events.read() {
+        if let Ok((entity, transform, selected)) = node_query.get(event.target) {
+            let mut info = HashMap::new();
+            if selected.is_some() {
+                for (other_entity, other_transform, other_selected) in node_query.iter() {
+                    if other_selected.is_some() {
+                        info.insert(other_entity, UndoableDragNodeEvent {
+                            node_entity: other_entity,
+                            old_position: other_transform.translation,
+                            new_position: other_transform.translation,
+                        });
+                    }
+                }
+            } else {
+                info.insert(entity, UndoableDragNodeEvent {
+                    node_entity: entity,
+                    old_position: transform.translation,
+                    new_position: transform.translation,
+                });
+            }
+            *drag_info = Some(info);
+        }
+    }
+
+    // Handle the actual dragging
     for event in drag_events.read() {
-        if let Ok((mut transform, selected)) = node_query.get_mut(event.target) {
+        if let Ok((entity, mut transform, selected)) = node_query.get_mut(event.target) {
             let scaled_delta = Vec3::new(
                 event.delta.x * camera_scale,
                 -event.delta.y * camera_scale,
                 0.0,
             );
-
-            // If the dragged node is selected, move all selected nodes
+            
             if selected.is_some() {
-                for (mut other_transform, other_selected) in node_query.iter_mut() {
+                for (other_entity, mut other_transform, other_selected) in node_query.iter_mut() {
                     if other_selected.is_some() {
                         other_transform.translation += scaled_delta;
+                        if let Some(ref mut info) = *drag_info {
+                            if let Some(drag_event) = info.get_mut(&other_entity) {
+                                drag_event.new_position = other_transform.translation;
+                            }
+                        }
                     }
                 }
             } else {
-                // If the dragged node is not selected, move only this node
                 transform.translation += scaled_delta;
+                if let Some(ref mut info) = *drag_info {
+                    if let Some(drag_event) = info.get_mut(&entity) {
+                        drag_event.new_position = transform.translation;
+                    }
+                }
+            }
+        }
+    }
+
+    // On drag end, empty the map and fire the event wrapped in an UndoableEvent
+    for _ in drag_end_events.read() {
+        if let Some(info) = drag_info.take() {
+            for drag_event in info.into_values() {
+                if drag_event.old_position != drag_event.new_position {
+                    commands.trigger(UndoableEvent::DragNode(drag_event));
+                }
             }
         }
     }
@@ -631,7 +675,7 @@ fn add_node_from_undo(
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
-    let node_entity = commands.get_or_spawn(trigger.event().node_entity).id();
+    let node_entity = trigger.event().node_entity;
 
     let spawned_node_index = pipeline.graph.add_node(trigger.event().node.clone());
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
