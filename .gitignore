@@ -2,3 +2,5 @@
 todo.md
 *.ps1
 *.txt
+
+/.vscode
