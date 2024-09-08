@@ -163,6 +163,9 @@ pub struct SelectingPort {
     pub direction: Direction,
 }
 
+#[derive(Component)]
+pub struct SnappedPort;
+
 pub fn handle_port_selection(
     mut commands: Commands,
     mut line_query: Query<(Entity, &mut Line)>,
@@ -175,6 +178,7 @@ pub fn handle_port_selection(
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
     q_pipeline: Query<&DisjointPipelineGraph>,
+    q_snapped_ports: Query<Entity, With<SnappedPort>>,
 ) {
     let (camera, camera_transform) = camera_query.single();
     let window = window.single();
@@ -239,6 +243,7 @@ pub fn handle_port_selection(
     if let Some(SelectingPort {
         position: start_position,
         line,
+        port,
         ..
     }) = *selecting_port
     {
@@ -252,24 +257,37 @@ pub fn handle_port_selection(
                     let snap_threshold = 20.0;
 
                     // Check for snapping to input ports
-                    for (_, transform, _, _) in input_port_query.iter() {
+                    let mut snapped_entity = Entity::PLACEHOLDER;
+
+                    for (port_entity, transform, _, _) in input_port_query.iter() {
                         let port_position = transform.translation().truncate();
                         if port_position.distance(cursor_world_position) < snap_threshold {
                             end_position = port_position;
+                            snapped_entity = port_entity;
                             break;
                         }
                     }
 
                     // Check for snapping to output ports
-                    for (_, transform, _, _) in output_port_query.iter() {
+                    for (port_entity, transform, _, _) in output_port_query.iter() {
                         let port_position = transform.translation().truncate();
                         if port_position.distance(cursor_world_position) < snap_threshold {
                             end_position = port_position;
+                            snapped_entity = port_entity;
                             break;
                         }
                     }
 
                     line.points = vec![start_position, end_position];
+
+                    if snapped_entity == Entity::PLACEHOLDER {
+                        // no snaps, clear snapped marker
+                        q_snapped_ports.iter().for_each(|snapped_port_entity| {
+                            commands.entity(snapped_port_entity).remove::<SnappedPort>();
+                        });
+                    } else {
+                        commands.entity(snapped_entity).insert(SnappedPort);
+                    }
                 }
             }
         }
@@ -315,8 +333,14 @@ pub fn handle_port_selection(
             ..
         }) = *selecting_port
         {
+            q_snapped_ports.iter().for_each(|snapped_port_entity| {
+                commands.entity(snapped_port_entity).remove::<SnappedPort>();
+            });
+            
             commands.entity(line).despawn_recursive();
             *selecting_port = None;
+
+            let maybe_snapped_port = q_snapped_ports.iter().last();
 
             match direction {
                 Direction::Incoming => {
@@ -325,12 +349,24 @@ pub fn handle_port_selection(
                             start_port,
                             end_port: input_port,
                         });
+                        println!("Added from hover: {:?}", input_port);
+                    } else if let Some(snapped_port) = maybe_snapped_port {
+                        println!("Added from snap: {:?}", snapped_port);
+                        commands.trigger(AddEdgeEvent {
+                            start_port,
+                            end_port: snapped_port,
+                        });
                     }
                 }
                 Direction::Outgoing => {
                     if let Some(output_port) = maybe_hovered_output {
                         commands.trigger(AddEdgeEvent {
                             start_port: output_port,
+                            end_port: start_port,
+                        });
+                    } else if let Some(snapped_port) = maybe_snapped_port {
+                        commands.trigger(AddEdgeEvent {
+                            start_port: snapped_port,
                             end_port: start_port,
                         });
                     }
@@ -343,14 +379,13 @@ pub fn handle_port_selection(
 fn handle_port_hover(
     mut materials: ResMut<Assets<PortMaterial>>,
     mut interaction_query: Query<
-        (&PickingInteraction, &Handle<PortMaterial>),
-        (
-            Changed<PickingInteraction>,
-            Or<(With<InputPort>, With<OutputPort>)>,
-        ),
+        (Entity, &PickingInteraction, &Handle<PortMaterial>),
     >,
+    q_snapped_ports: Query<Entity, With<SnappedPort>>,
 ) {
-    for (interaction, material_handle) in interaction_query.iter_mut() {
+    let maybe_snapped_port = q_snapped_ports.iter().last();
+
+    for (port_entity, interaction, material_handle) in interaction_query.iter_mut() {
         if let Some(material) = materials.get_mut(material_handle) {
             match *interaction {
                 PickingInteraction::Pressed => {
@@ -362,6 +397,15 @@ fn handle_port_hover(
                 _ => {
                     material.is_hovered = 0.0;
                 }
+            }
+
+            match maybe_snapped_port {
+                Some(snapped_port) => {
+                    if port_entity == snapped_port {
+                        material.is_hovered = 1.0;
+                    }
+                },
+                None => {},
             }
         }
     }
