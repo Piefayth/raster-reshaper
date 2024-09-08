@@ -2,21 +2,19 @@ use std::time::Instant;
 
 use crate::{
     asset::NodeDisplayMaterial,
-    nodes::{fields::can_convert_field, InputId, GraphNode, NodeDisplay, NodeTrait, OutputId},
-    setup::{CustomGpuDevice, CustomGpuQueue},
+    nodes::{fields::can_convert_field, GraphNode, GraphNodeKind, InputId, NodeDisplay, NodeProcessText, NodeTrait, OutputId},
     ApplicationState,
 };
 use bevy::{
     app::App,
     asset::{Assets, Handle},
-    color::palettes::css::RED,
     prelude::*,
     tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task},
     utils::{HashMap, HashSet},
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
-    graph::{DiGraph, NodeIndex}, matrix_graph::Zero, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
+    graph::{NodeIndex}, matrix_graph::Zero, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
 };
 
 pub struct GraphPlugin;
@@ -71,29 +69,34 @@ fn update_nodes(
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
     mut q_initialized_nodes: Query<(&mut NodeDisplay, &Handle<NodeDisplayMaterial>)>,
+    mut q_process_time_text: Query<&mut Text, With<NodeProcessText>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<NodeDisplayMaterial>>,
 ) {
     let graph = &q_pipeline.single().graph;
 
     for (idx, node) in graph.node_references() {
-        let probably_node = q_initialized_nodes.get_mut(node.entity());
+        let probably_node = q_initialized_nodes.get_mut(node.kind.entity());
 
         match probably_node {
             Ok((mut node_display, material_handle)) => {
                 node_display.index = idx; // The NodeIndex could've changed if the graph was modified...is that still true with the stable graph? i think no UNLESS we start preserving index across undo/redo
 
+                if let Ok(mut text) = q_process_time_text.get_mut(node_display.process_time_text) {
+                    text.sections[0].value = format!("{:?}", node.last_process_time);
+                };
+
                 let material = materials.get_mut(material_handle.id()).unwrap();
                 let old_image = images.get_mut(material.node_texture.id()).expect(
                     "Found an image handle on a node sprite that does not reference a known image.",
                 );
-                match &node {
-                    GraphNode::Example(ex) => {
+                match &node.kind {
+                    GraphNodeKind::Example(ex) => {
                         if let Some(image) = &ex.output_image {
                             *old_image = image.clone();
                         }
                     }
-                    GraphNode::Color(color_node) => {
+                    GraphNodeKind::Color(color_node) => {
                         material.background_color = color_node.out_color;
                     }
                 }
@@ -207,9 +210,9 @@ fn process_pipeline(
                         let edge_data = edge.weight();
 
                         // Update the dependant node
-                        let _ = node_with_resolved_dependencies.node.set_input(
+                        let _ = node_with_resolved_dependencies.node.kind.set_input(
                             edge_data.to_field,
-                            from.node.get_output(edge_data.from_field).unwrap(),
+                            from.node.kind.get_output(edge_data.from_field).unwrap(),
                         );
                     }
 
@@ -243,13 +246,15 @@ fn process_pipeline(
 async fn process_node(mut p_node: ProcessNode) -> ProcessNode {
     let start = Instant::now();
 
-    p_node.node.process().await;
+    p_node.node.kind.process().await;
 
     println!(
         "Node with index {:?} processed in {:?}",
         p_node.index,
         start.elapsed()
     );
+
+    p_node.node.last_process_time = start.elapsed();
 
     p_node
 }
@@ -309,13 +314,13 @@ impl AddEdgeChecked for StableDiGraph<GraphNode, Edge> {
             .node_weight(to)
             .ok_or_else(|| format!("Node at index {:?} not found", to))?;
 
-        let output = from_node.get_output(edge.from_field).ok_or_else(|| {
+        let output = from_node.kind.get_output(edge.from_field).ok_or_else(|| {
             format!(
                 "Output field {:?} not found in source node",
                 edge.from_field
             )
         })?;
-        let input = to_node
+        let input = to_node.kind
             .get_input(edge.to_field)
             .ok_or_else(|| format!("Input field {:?} not found in target node", edge.to_field))?;
 

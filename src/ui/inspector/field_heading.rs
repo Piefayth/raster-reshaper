@@ -3,10 +3,9 @@ use bevy::{
     prelude::*,
     ui::Direction as UIDirection,
 };
-use bevy_cosmic_edit::*;
 use bevy_mod_picking::{
-    events::{Click, Down, Pointer},
-    prelude::{On, Pickable, PointerButton},
+    events::{Down, Pointer},
+    prelude::{PointerButton},
 };
 use petgraph::{visit::EdgeRef, Direction};
 
@@ -16,9 +15,8 @@ use crate::{
     },
     graph::DisjointPipelineGraph,
     nodes::{
-        ports::{InputPort, OutputPort}, NodeDisplay, NodeTrait, OutputId, Selected
+        ports::{InputPort, OutputPort}, NodeDisplay, NodeTrait
     },
-    ApplicationState,
 };
 
 use super::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch};
@@ -135,7 +133,7 @@ pub fn on_click_input_visibility_switch(
                 let port_node_index = q_nodes.get(port.node_entity).unwrap().index;
 
                 if let Some(node) = pipeline.graph.node_weight(port_node_index) {
-                    if let Some(meta) = node.get_input_meta(port.input_id) {
+                    if let Some(meta) = node.kind.get_input_meta(port.input_id) {
                         let new_visibility = !meta.visible;
 
                         commands.trigger(SetInputVisibilityEvent {
@@ -188,7 +186,7 @@ pub fn on_click_output_visibility_switch(
                 let port_node_index = q_nodes.get(port.node_entity).unwrap().index;
 
                 if let Some(node) = pipeline.graph.node_weight(port_node_index) {
-                    if let Some(meta) = node.get_output_meta(port.output_id) {
+                    if let Some(meta) = node.kind.get_output_meta(port.output_id) {
                         let new_visibility = !meta.visible;
 
                         commands.trigger(SetOutputVisibilityEvent {

@@ -1,8 +1,7 @@
 use bevy::{ecs::system::SystemId, prelude::*};
-use bevy_cosmic_edit::{Attrs, ColorExtras, CosmicBackgroundColor, CosmicBuffer, CosmicEditBundle, CosmicFontSystem, CosmicSource, CosmicWrap, CursorColor, MaxLines, Metrics, ScrollDisabled, SelectionColor};
-use petgraph::graph::NodeIndex;
+use bevy_cosmic_edit::{ CosmicFontSystem};
 
-use crate::{events::{SetInputFieldEvent, UndoableEvent}, graph::DisjointPipelineGraph, nodes::{fields::Field, FieldId, InputId, NodeDisplay, NodeTrait, OutputId}};
+use crate::{events::{SetInputFieldEvent}, graph::DisjointPipelineGraph, nodes::{fields::Field, InputId, NodeDisplay, NodeTrait, OutputId}};
 
 use super::text_input::{RequestUpdateTextInput, TextInputHandlerInput, TextInputWidget};
 
@@ -122,7 +121,7 @@ pub fn color_input_handler<const COMPONENT: usize>(
         let node_display = q_node_display.get(lrgba_widget.node).expect("Had LinearRgbaInputWidget with bad Node reference.");
         
         let node = graph.node_weight(node_display.index).expect("Tried to modify value of deleted node.");
-        let old_value = node.get_input(lrgba_widget.input_id).expect("Tried to get invalid input from an LinearRgbaInputWidget");
+        let old_value = node.kind.get_input(lrgba_widget.input_id).expect("Tried to get invalid input from an LinearRgbaInputWidget");
     
         let mut color = match old_value {
             Field::LinearRgba(color) => color,
@@ -272,7 +271,7 @@ fn update_linear_rgba_output(
     if let Ok(linear_rgba_widget) = q_linear_rgba_out.get(trigger.event().widget_entity) {
         if let Ok(node_display) = q_node_display.get(linear_rgba_widget.node) {
             if let Some(node) = pipeline.graph.node_weight(node_display.index) {
-                if let Some(Field::LinearRgba(color)) = node.get_output(linear_rgba_widget.output_id) {
+                if let Some(Field::LinearRgba(color)) = node.kind.get_output(linear_rgba_widget.output_id) {
                     // Update the color display
                     if let Ok(mut background_color) = q_background_color.get_mut(linear_rgba_widget.color_display) {
                         *background_color = Color::linear_rgba(color.red, color.green, color.blue, color.alpha).into();

@@ -1,42 +1,27 @@
 use bevy::{
-    color::palettes::{
-        css::{GRAY, GREEN, RED},
-        tailwind::SLATE_900,
-    },
-    prelude::*,
-    ui::Direction as UIDirection,
-    utils::HashSet,
+    color::palettes::tailwind::SLATE_900, prelude::*, ui::Direction as UIDirection, utils::HashSet,
 };
 use bevy_cosmic_edit::*;
-use bevy_mod_picking::{
-    events::{Click, Down, Pointer},
-    prelude::{On, Pickable, PointerButton},
-};
 use field_heading::FieldHeadingWidget;
 use linear_rgba::{
     LinearRgbaInputWidget, LinearRgbaOutputWidget, LinearRgbaPlugin, LinearRgbaWidgetCallbacks,
     RequestUpdateLinearRgbaInput, RequestUpdateLinearRgbaOutput,
 };
-use petgraph::{
-    graph::{EdgeIndex, NodeIndex},
-    prelude::StableDiGraph,
-    visit::EdgeRef,
-    Direction,
-};
+use petgraph::Direction;
 use text_input::TextInputPlugin;
 
 use crate::{
     asset::FontAssets,
-    graph::{DisjointPipelineGraph, Edge, GraphWasUpdated},
+    graph::{DisjointPipelineGraph, GraphWasUpdated},
     nodes::{
-        fields::{Field, FieldMeta},
-        ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout},
-        GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected,
+        fields::Field,
+        ports::{InputPort, OutputPort},
+        NodeDisplay, NodeTrait, OutputId, Selected,
     },
     ApplicationState,
 };
 
-use super::{Spawner, UIContext};
+use super::UIContext;
 
 pub mod field_heading;
 pub mod linear_rgba;
@@ -173,7 +158,7 @@ fn on_node_selection_changed(
                     spawn_header(
                         &mut commands,
                         section_entity,
-                        &format!("{} Properties", node),
+                        &format!("{} Properties", node.kind),
                         &fonts,
                     );
 
@@ -182,8 +167,8 @@ fn on_node_selection_changed(
                     // Get children of the selected node
                     if let Ok(node_children) = children.get(selected_entity) {
                         // Spawn input widgets
-                        for &input_id in node.input_fields() {
-                            if let Some(field) = node.get_input(input_id) {
+                        for &input_id in node.kind.input_fields() {
+                            if let Some(field) = node.kind.get_input(input_id) {
                                 let maybe_input_port = node_children.iter().find_map(|&child| {
                                     input_ports
                                         .get(child)
@@ -199,6 +184,7 @@ fn on_node_selection_changed(
 
                                 if let Some(input_port) = maybe_input_port {
                                     let is_visible = node
+                                        .kind
                                         .get_input_meta(input_id)
                                         .map(|meta| meta.visible)
                                         .unwrap_or(false);
@@ -239,8 +225,8 @@ fn on_node_selection_changed(
                         spawn_header(&mut commands, section_entity, "Outputs", &fonts);
 
                         // Spawn output widgets
-                        for &output_id in node.output_fields() {
-                            if let Some(field) = node.get_output(output_id) {
+                        for &output_id in node.kind.output_fields() {
+                            if let Some(field) = node.kind.get_output(output_id) {
                                 let maybe_output_port = node_children.iter().find_map(|&child| {
                                     output_ports.get(child).ok().and_then(
                                         |(entity, output_port)| {
@@ -255,6 +241,7 @@ fn on_node_selection_changed(
 
                                 if let Some(output_port) = maybe_output_port {
                                     let is_visible = node
+                                        .kind
                                         .get_output_meta(output_id)
                                         .map(|meta| meta.visible)
                                         .unwrap_or(false);
@@ -313,11 +300,12 @@ fn trigger_inspector_updates(
             // for every node shown in inspector
             if let Ok(node_display) = q_node_displays.get(node_entity) {
                 let node = graph.node_weight(node_display.index).unwrap();
-                let node_fields = node.input_fields();
+                let node_fields = node.kind.input_fields();
 
                 for input_id in node_fields {
-                    let field = node.get_input(*input_id).unwrap();
-                    let is_readonly = graph.edges_directed(node_display.index, Direction::Incoming)
+                    let field = node.kind.get_input(*input_id).unwrap();
+                    let is_readonly = graph
+                        .edges_directed(node_display.index, Direction::Incoming)
                         .any(|edge| edge.weight().to_field == *input_id);
 
                     match field {

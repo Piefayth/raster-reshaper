@@ -1,36 +1,51 @@
+#![allow(non_upper_case_globals)]
+
 pub mod fields;
 pub mod kinds;
 pub mod macros;
 pub mod ports;
 pub mod shared;
 
+use std::time::Duration;
+
 use crate::{
     asset::{
         FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, PORT_RADIUS,
-    }, camera::MainCamera, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent, UndoableAddNodeEvent, UndoableDragNodeEvent, UndoableEvent, UndoableRemoveNodeEvent}, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext, ApplicationState
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
+    },
+    camera::MainCamera,
+    events::{
+        AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent, UndoableAddNodeEvent,
+        UndoableDragNodeEvent, UndoableEvent, UndoableRemoveNodeEvent,
+    },
+    graph::{DisjointPipelineGraph, RequestProcessPipeline},
+    line_renderer::{generate_curved_line, Line},
+    setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue},
+    ui::context_menu::UIContext,
+    ApplicationState,
 };
 use bevy::{
     color::palettes::{
-        css::{MAGENTA, ORANGE, PINK, RED, TEAL, WHITE, YELLOW},
+        css::{MAGENTA, ORANGE, WHITE},
         tailwind::{BLUE_600, GRAY_200, GRAY_400},
-    }, prelude::*, render::render_resource::Source, sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle}, ui::Direction as UIDirection, utils::HashMap, window::PrimaryWindow
+    },
+    prelude::*,
+    sprite::{Anchor, MaterialMesh2dBundle, Mesh2dHandle},
+    ui::Direction as UIDirection,
+    utils::HashMap,
 };
 use bevy_mod_picking::{
-    events::{Click, Down, Drag, DragEnd, DragStart, Pointer},
+    events::{Down, Drag, DragEnd, DragStart, Pointer},
     focus::PickingInteraction,
-    prelude::{Pickable, PointerButton},
-    PickableBundle,
+    prelude::PointerButton,
 };
 use fields::{Field, FieldMeta};
 use kinds::color::ColorNode;
 use kinds::example::ExampleNode;
 use macros::macros::declare_node_enum_and_impl_trait;
-use petgraph::Direction;
-use petgraph::{graph::NodeIndex, visit::EdgeRef};
+use petgraph::graph::NodeIndex;
 use ports::{
-    port_color, InputPort, OutputPort, PortPlugin, RequestInputPortRelayout,
-    RequestOutputPortRelayout,
+    InputPort, OutputPort, PortPlugin, RequestInputPortRelayout, RequestOutputPortRelayout,
 };
 use shared::shader_source;
 use wgpu::TextureFormat;
@@ -45,31 +60,25 @@ impl Plugin for NodePlugin {
         app.add_systems(
             Update,
             (
-                (
-                    handle_node_drag,
-                    update_edge_lines,
-
-                    handle_node_selection,
-                ),
+                (handle_node_drag, update_edge_lines, handle_node_selection),
                 (update_node_border),
             )
                 .chain()
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
 
-        app
-            .observe(add_node)
+        app.observe(add_node)
             .observe(add_node_from_undo)
             .observe(node_z_to_top)
             .observe(delete_node)
             .observe(delete_node_from_undo);
-
     }
 }
 
 #[derive(Component)]
 pub struct NodeDisplay {
     pub index: NodeIndex,
+    pub process_time_text: Entity,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -81,7 +90,7 @@ pub struct OutputId(pub &'static str, pub &'static str);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum FieldId {
     Input(InputId),
-    Output(OutputId)
+    Output(OutputId),
 }
 
 pub trait NodeTrait {
@@ -104,10 +113,16 @@ pub trait NodeTrait {
 }
 
 declare_node_enum_and_impl_trait! {
-    pub enum GraphNode {
+    pub enum GraphNodeKind {
         Example(ExampleNode),
         Color(ColorNode),
     }
+}
+
+#[derive(Clone)]
+pub struct GraphNode {
+    pub last_process_time: Duration,
+    pub kind: GraphNodeKind,
 }
 
 #[derive(Event)]
@@ -126,21 +141,23 @@ fn delete_node(
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let (node_entity, node_display, node_transform) = q_nodes.get(trigger.event().node_entity).unwrap();
+    let (node_entity, node_display, node_transform) =
+        q_nodes.get(trigger.event().node_entity).unwrap();
 
     if let Some(removed_node) = pipeline.graph.remove_node(node_display.index) {
-        let node_ports: Vec<Entity> = q_input_ports
-        .iter()
-        .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
-        .chain(
-            q_output_ports
+        let node_ports: Vec<Entity> =
+            q_input_ports
                 .iter()
-                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity)),
-        )
-        .collect();
+                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
+                .chain(q_output_ports.iter().filter_map(|(entity, port)| {
+                    (port.node_entity == node_entity).then_some(entity)
+                }))
+                .collect();
 
         for (edge_line_entity, edge_line) in q_edge_lines.iter() {
-            if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
+            if node_ports.contains(&edge_line.start_port)
+                || node_ports.contains(&edge_line.end_port)
+            {
                 commands.trigger(RemoveEdgeEvent {
                     start_port: edge_line.start_port,
                     end_port: edge_line.end_port,
@@ -149,7 +166,8 @@ fn delete_node(
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
-        commands.entity(trigger.event().node_entity)
+        commands
+            .entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
             .remove::<Selected>()
             .insert(Visibility::Hidden);
@@ -178,24 +196,26 @@ fn delete_node_from_undo(
     let (node_entity, node_display) = q_nodes.get(trigger.event().node_entity).unwrap();
 
     if let Some(_) = pipeline.graph.remove_node(node_display.index) {
-        let node_ports: Vec<Entity> = q_input_ports
-        .iter()
-        .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
-        .chain(
-            q_output_ports
+        let node_ports: Vec<Entity> =
+            q_input_ports
                 .iter()
-                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity)),
-        )
-        .collect();
+                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
+                .chain(q_output_ports.iter().filter_map(|(entity, port)| {
+                    (port.node_entity == node_entity).then_some(entity)
+                }))
+                .collect();
 
         for (edge_line_entity, edge_line) in q_edge_lines.iter() {
-            if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
+            if node_ports.contains(&edge_line.start_port)
+                || node_ports.contains(&edge_line.end_port)
+            {
                 commands.entity(edge_line_entity).despawn();
             }
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
-        commands.entity(trigger.event().node_entity)
+        commands
+            .entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
             .insert(Visibility::Hidden);
 
@@ -251,19 +271,25 @@ fn handle_node_drag(
             if selected.is_some() {
                 for (other_entity, other_transform, other_selected) in node_query.iter() {
                     if other_selected.is_some() {
-                        info.insert(other_entity, UndoableDragNodeEvent {
-                            node_entity: other_entity,
-                            old_position: other_transform.translation,
-                            new_position: other_transform.translation,
-                        });
+                        info.insert(
+                            other_entity,
+                            UndoableDragNodeEvent {
+                                node_entity: other_entity,
+                                old_position: other_transform.translation,
+                                new_position: other_transform.translation,
+                            },
+                        );
                     }
                 }
             } else {
-                info.insert(entity, UndoableDragNodeEvent {
-                    node_entity: entity,
-                    old_position: transform.translation,
-                    new_position: transform.translation,
-                });
+                info.insert(
+                    entity,
+                    UndoableDragNodeEvent {
+                        node_entity: entity,
+                        old_position: transform.translation,
+                        new_position: transform.translation,
+                    },
+                );
             }
             *drag_info = Some(info);
         }
@@ -277,7 +303,7 @@ fn handle_node_drag(
                 -event.delta.y * camera_scale,
                 0.0,
             );
-            
+
             if selected.is_some() {
                 for (other_entity, mut other_transform, other_selected) in node_query.iter_mut() {
                     if other_selected.is_some() {
@@ -514,6 +540,9 @@ fn update_node_border(
     }
 }
 
+#[derive(Component)]
+pub struct NodeProcessText;
+
 fn add_node(
     trigger: Trigger<AddNodeEvent>,
     mut commands: Commands,
@@ -544,7 +573,14 @@ fn add_node(
 
     node_count.0 += 1;
 
-    let node_entity = commands.spawn(NodeDisplay { index: 0.into() }).id();
+
+
+    let node_entity = commands
+        .spawn(NodeDisplay {
+            index: 0.into(),
+            process_time_text: Entity::PLACEHOLDER,
+        })
+        .id();
 
     let spawned_node_index = match trigger.event().kind {
         RequestSpawnNodeKind::Example => {
@@ -560,21 +596,51 @@ fn add_node(
                 TextureFormat::Rgba8Unorm,
             );
 
-            pipeline.graph.add_node(GraphNode::Example(example_node))
+            pipeline.graph.add_node(GraphNode {
+                kind: GraphNodeKind::Example(example_node),
+                last_process_time: Duration::ZERO,
+            })
         }
         RequestSpawnNodeKind::Color => {
             let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-            pipeline.graph.add_node(GraphNode::Color(color_node))
+            pipeline.graph.add_node(GraphNode {
+                kind: GraphNodeKind::Color(color_node),
+                last_process_time: Duration::ZERO,
+            })
         }
     };
 
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
-    node.store_all();
+    node.kind.store_all();
+
+    let process_time_text_margin_top = 26.;
+    let process_time_text = commands.spawn(Text2dBundle {
+        text: Text::from_section(
+            format!("{:?}", node.last_process_time),
+            TextStyle {
+                font: fonts.deja_vu_sans.clone(),
+                font_size: 18.,
+                color: Color::WHITE,
+            },
+        ),
+        text_anchor: Anchor::Center,
+        transform: Transform::from_xyz(
+            0.,
+            (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.) - process_time_text_margin_top,
+            0.1,
+        ),
+        ..default()
+    })
+    .insert(NodeProcessText)
+    .id();
+
+    commands.entity(node_entity).add_child(process_time_text);
 
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
             index: spawned_node_index,
+            process_time_text
         })
         .insert(MaterialMesh2dBundle {
             transform: Transform::from_translation(world_position),
@@ -584,8 +650,8 @@ fn add_node(
                 node_texture: images.add(Image::transparent()),
                 title_bar_height: NODE_TITLE_BAR_SIZE,
                 node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
-                background_color: match node {
-                    GraphNode::Color(cn) => cn.out_color,
+                background_color: match &node.kind {
+                    GraphNodeKind::Color(cn) => cn.out_color,
                     _ => GRAY_200.into(),
                 },
                 border_width: 2.,
@@ -620,8 +686,9 @@ fn add_node(
                 ),
                 ..default()
             });
+
             // Spawn input ports
-            for input_id in node.input_fields() {
+            for input_id in node.kind.input_fields() {
                 InputPort::spawn(
                     child_builder,
                     &node,
@@ -637,7 +704,7 @@ fn add_node(
             }
 
             // Spawn output ports
-            for output_id in node.output_fields() {
+            for output_id in node.kind.output_fields() {
                 OutputPort::spawn(
                     child_builder,
                     &node,
@@ -650,9 +717,10 @@ fn add_node(
                 child_builder.add_command(move |world: &mut World| {
                     world.trigger(RequestOutputPortRelayout { node_entity });
                 });
+
             }
         });
-    
+
     commands.trigger(UndoableEvent::AddNode(UndoableAddNodeEvent {
         position: world_position,
         node: node.clone(),
@@ -672,6 +740,7 @@ fn add_node_from_undo(
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+    q_old_node_display: Query<&NodeDisplay>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
@@ -679,12 +748,15 @@ fn add_node_from_undo(
 
     let spawned_node_index = pipeline.graph.add_node(trigger.event().node.clone());
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
-    node.store_all();
+    node.kind.store_all();
+
+    let old_node_display = q_old_node_display.get(node_entity).unwrap();
 
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
             index: spawned_node_index,
+            process_time_text: old_node_display.process_time_text
         })
         .insert(UIContext::Node(node_entity))
         .insert(Visibility::Visible);

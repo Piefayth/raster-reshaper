@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use bevy::{
-    color::palettes::css::{BLUE, GREEN, RED, YELLOW}, math::VectorSpace, prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
+    prelude::*, render::renderer::{RenderAdapter, RenderDevice, RenderQueue, WgpuWrapper}, sprite::MaterialMesh2dBundle, tasks::block_on, window::PresentMode
 };
-use bevy_mod_picking::{prelude::PickSelection, PickableBundle};
-use petgraph::{graph::DiGraph, prelude::StableDiGraph};
+use petgraph::{prelude::StableDiGraph};
 use wgpu::{Features, Limits};
 
 use crate::{
-    asset::GeneratedMeshes, camera::MainCamera, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::Line, nodes::GraphNode, ApplicationState
+    asset::GeneratedMeshes, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, nodes::GraphNode, ApplicationState
 };
 
 pub struct SetupPlugin;

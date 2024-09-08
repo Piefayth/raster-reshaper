@@ -1,10 +1,9 @@
 use bevy::{
     color::palettes::{
-        css::{BLACK, WHITE},
-        tailwind::{GRAY_600, GRAY_700, GRAY_800, GRAY_900},
+        css::{ WHITE},
+        tailwind::{GRAY_600, GRAY_800},
     },
     ecs::system::EntityCommands,
-    input::{mouse::MouseButtonInput, ButtonState},
     prelude::*,
     window::PrimaryWindow,
     ui::Direction as UIDirection,
@@ -15,7 +14,7 @@ use bevy_mod_picking::{
     prelude::{On, Pickable, PointerButton},
     PickableBundle,
 };
-use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
+use petgraph::{visit::EdgeRef, Direction};
 use crate::{
     asset::FontAssets, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestSpawnNodeKind, Selected}, ApplicationState
 };
@@ -428,11 +427,6 @@ fn detatch_input(
             .edges_directed(target_node_index, Direction::Incoming)
             .find(|edge| edge.weight().to_field == target_port)
         {
-            // need to find the output port entity that we were connected to? given an input?
-            // hmmm 
-            // oh an input only ever has one output connecting it
-            // but we do not have the entity of the node on the other side of the edge?
-            
             if let Some((output_port_entity, _)) = q_output_ports.iter().find(|(_, port)| {
                 let output_node_index = q_nodes.get(port.node_entity).unwrap().index;
                 output_node_index == edge.source() && port.output_id == edge.weight().from_field

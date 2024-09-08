@@ -1,13 +1,13 @@
 use bevy::{
     math::VectorSpace, prelude::*, render::{
-        mesh::{MeshVertexAttribute, MeshVertexBufferLayout, MeshVertexBufferLayoutRef, VertexAttributeValues},
+        mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef, VertexAttributeValues},
         render_asset::RenderAssetUsages,
         render_resource::{
             AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
             VertexBufferLayout, VertexFormat, VertexStepMode,
         },
-        Extract, RenderApp, RenderSet,
-    }, sprite::{Material2d, Material2dKey, Material2dPlugin, MaterialMesh2dBundle, Mesh2d, Mesh2dHandle}, utils::HashMap
+        Extract, RenderApp,
+    }, sprite::{Material2d, Material2dKey, Material2dPlugin, MaterialMesh2dBundle, Mesh2dHandle}, utils::HashMap
 };
 use wgpu::PrimitiveTopology;
 

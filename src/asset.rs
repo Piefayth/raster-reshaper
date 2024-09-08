@@ -1,5 +1,5 @@
 use bevy::{
-    color::palettes::tailwind::{SLATE_800, SLATE_900},
+    color::palettes::tailwind::{SLATE_800},
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderRef},
     sprite::{Material2d, Material2dPlugin, Mesh2dHandle},

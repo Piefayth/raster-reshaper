@@ -1,4 +1,4 @@
-use bevy::{ecs::system::SystemId, input::keyboard::KeyboardInput, prelude::*};
+use bevy::{ecs::system::SystemId, prelude::*};
 use bevy_cosmic_edit::*;
 use bevy_mod_picking::events::{Down, Pointer};
 

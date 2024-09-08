@@ -1,13 +1,13 @@
 use crate::{
     asset::{
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::{Field, FieldMeta}, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
+    },graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::{Field, FieldMeta}, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, ApplicationState
 };
 use bevy::{
     prelude::*,
     ui::Direction as UIDirection,
 };
 use bevy_mod_picking::{
-    prelude::{Pickable, PointerButton},
+    prelude::{Pickable},
 };
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
@@ -406,19 +406,19 @@ fn add_edge(
                 let end = end_transform.translation().truncate();
                 let curve_points = generate_curved_line(start, end, 50);
 
-                // Get the colors from the graph nodes
-                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap().clone(); // cloning so we can borrow mutably from the graph....can that be improved?
+                 // cloning so we can borrow mutably from the graph....can that be improved?
+                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap().clone();
                 let end_node = pipeline.graph.node_weight_mut(end_port_node_index).unwrap();
 
-                let old_input_field_meta = end_node.get_input_meta(end_port.input_id).unwrap();
-                end_node.set_input_meta(end_port.input_id, FieldMeta {
+                let old_input_field_meta = end_node.kind.get_input_meta(end_port.input_id).unwrap();
+                end_node.kind.set_input_meta(end_port.input_id, FieldMeta {
                     visible: old_input_field_meta.visible,
-                    storage: end_node.get_input(end_port.input_id).unwrap()
+                    storage: end_node.kind.get_input(end_port.input_id).unwrap()
                 });
 
                 let start_color =
-                    port_color(&start_node.get_output(start_port.output_id).unwrap());
-                let end_color = port_color(&end_node.get_input(end_port.input_id).unwrap());
+                    port_color(&start_node.kind.get_output(start_port.output_id).unwrap());
+                let end_color = port_color(&end_node.kind.get_input(end_port.input_id).unwrap());
 
                 let curve_colors =
                     generate_color_gradient(start_color, end_color, curve_points.len());
@@ -437,7 +437,6 @@ fn add_edge(
                     Pickable::IGNORE,
                 ));
 
-                // Trigger pipeline process
                 commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
                 ev_process_pipeline.send(RequestProcessPipeline);
             }
@@ -469,7 +468,8 @@ fn remove_edge(
         let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
         let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
 
-        // Find the edge in the graph; if the edge removal was triggered by a node removal, the edge might be gone from here already (as a side effect of the node removal)
+        // Find the edge in the graph; if the edge removal was triggered by a node removal, 
+            // the edge might be gone from here already (as a side effect of the node removal)
         if let Some(edge_index) = pipeline
             .graph
             .find_edge(start_port_node_index, end_port_node_index)
@@ -485,9 +485,9 @@ fn remove_edge(
             // Set the removed input value back to its stored value
             // the end node could've, validly, been deleted already, and we can ignore restoring its field
             if let Some(end_node) = pipeline.graph.node_weight_mut(end_port_node_index) {
-                end_node.set_input(
+                end_node.kind.set_input(
                     end_port.input_id, 
-                    end_node.get_input_meta(end_port.input_id).unwrap().storage.clone()
+                    end_node.kind.get_input_meta(end_port.input_id).unwrap().storage.clone()
                 ).unwrap();
             }
         
@@ -509,8 +509,8 @@ fn handle_set_input_field(
     let mut pipeline = q_pipeline.single_mut();
     
     if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if node.get_input(trigger.event().input_id).unwrap() != trigger.event().new_value {
-            if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
+        if node.kind.get_input(trigger.event().input_id).unwrap() != trigger.event().new_value {
+            if let Err(e) = node.kind.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
                 eprintln!("Failed to set input field: {}", e);
                 return;
             };
@@ -533,8 +533,8 @@ fn handle_set_output_field(
     let mut pipeline = q_pipeline.single_mut();
     
     if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if node.get_output(trigger.event().output_id).unwrap() != trigger.event().new_value {
-            if let Err(e) = node.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
+        if node.kind.get_output(trigger.event().output_id).unwrap() != trigger.event().new_value {
+            if let Err(e) = node.kind.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
                 eprintln!("Failed to set output field: {}", e);
                 return;
             };

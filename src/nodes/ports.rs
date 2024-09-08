@@ -23,7 +23,6 @@ use bevy_mod_picking::{
     prelude::{Pickable, PointerButton},
     PickableBundle,
 };
-use petgraph::graph::NodeIndex;
 use petgraph::Direction;
 
 pub struct PortPlugin;
@@ -76,8 +75,8 @@ impl InputPort {
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
     ) -> Entity {
-        let field = node.get_input(input_id).unwrap();
-        let meta = node.get_input_meta(input_id).unwrap();
+        let field = node.kind.get_input(input_id).unwrap();
+        let meta = node.kind.get_input_meta(input_id).unwrap();
 
         let port_material = port_materials.add(PortMaterial {
             port_color: port_color(&field),
@@ -120,8 +119,8 @@ impl OutputPort {
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
     ) -> Entity {
-        let field = node.get_output(output_id).unwrap();
-        let meta = node.get_output_meta(output_id).unwrap();
+        let field = node.kind.get_output(output_id).unwrap();
+        let meta = node.kind.get_output_meta(output_id).unwrap();
 
         let port_material = port_materials.add(PortMaterial {
             port_color: port_color(&field),
@@ -199,7 +198,7 @@ pub fn handle_port_selection(
                 let input_node_index = q_nodes.get(input.node_entity).unwrap().index;
 
                 let node = graph.node_weight(input_node_index).unwrap();
-                let field = node.get_input(input.input_id).unwrap();
+                let field = node.kind.get_input(input.input_id).unwrap();
                 (
                     transform.translation().truncate(),
                     Direction::Outgoing,
@@ -209,7 +208,7 @@ pub fn handle_port_selection(
                 let output_node_index = q_nodes.get(output.node_entity).unwrap().index;
 
                 let node = graph.node_weight(output_node_index).unwrap();
-                let field = node.get_output(output.output_id).unwrap();
+                let field = node.kind.get_output(output.output_id).unwrap();
                 (
                     transform.translation().truncate(),
                     Direction::Incoming,
@@ -393,17 +392,17 @@ pub fn reposition_input_ports(
 
     if let Some(node) = pipeline.graph.node_weight(input_node_index) {
         let port_group_vertical_margin = 36.;
-        let visible_inputs: Vec<_> = node
+        let visible_inputs: Vec<_> = node.kind
             .input_fields()
             .iter()
-            .filter(|&&id| node.get_input_meta(id).unwrap().visible)
+            .filter(|&&id| node.kind.get_input_meta(id).unwrap().visible)
             .collect();
 
         for (mut transform, mut visibility, port) in q_input_port
             .iter_mut()
             .filter(|(_, _, p)| p.node_entity == trigger.event().node_entity)
         {
-            let meta = node.get_input_meta(port.input_id).unwrap();
+            let meta = node.kind.get_input_meta(port.input_id).unwrap();
             if meta.visible {
                 let index = visible_inputs
                     .iter()
@@ -435,17 +434,17 @@ pub fn reposition_output_ports(
 
     if let Some(node) = pipeline.graph.node_weight(output_node_index) {
         let port_group_vertical_margin = 36.;
-        let visible_outputs: Vec<_> = node
+        let visible_outputs: Vec<_> = node.kind
             .output_fields()
             .iter()
-            .filter(|&&id| node.get_output_meta(id).unwrap().visible)
+            .filter(|&&id| node.kind.get_output_meta(id).unwrap().visible)
             .collect();
 
         for (mut transform, mut visibility, port) in q_output_port_mut
             .iter_mut()
             .filter(|(_, _, p)| p.node_entity == trigger.event().node_entity)
         {
-            let meta = node.get_output_meta(port.output_id).unwrap();
+            let meta = node.kind.get_output_meta(port.output_id).unwrap();
             if meta.visible {
                 let index = visible_outputs
                     .iter()
@@ -481,12 +480,12 @@ fn handle_input_port_visibility_change(
         let input_node_index = q_nodes.get(input_port.node_entity).unwrap().index;
 
         if let Some(node) = pipeline.graph.node_weight_mut(input_node_index) {
-            if let Some(meta) = node.get_input_meta(input_port.input_id) {
+            if let Some(meta) = node.kind.get_input_meta(input_port.input_id) {
                 let new_meta = FieldMeta {
                     visible: trigger.event().is_visible,
                     ..meta.clone()
                 };
-                node.set_input_meta(input_port.input_id, new_meta);
+                node.kind.set_input_meta(input_port.input_id, new_meta);
 
                 commands.trigger(RequestInputPortRelayout {
                     node_entity: input_port.node_entity,
@@ -519,12 +518,12 @@ fn handle_output_port_visibility_change(
     if let Ok(output_port) = q_output_ports.get(trigger.event().output_port) {
         let output_node_index = q_nodes.get(output_port.node_entity).unwrap().index;
         if let Some(node) = pipeline.graph.node_weight_mut(output_node_index) {
-            if let Some(meta) = node.get_output_meta(output_port.output_id) {
+            if let Some(meta) = node.kind.get_output_meta(output_port.output_id) {
                 let new_meta = FieldMeta {
                     visible: trigger.event().is_visible,
                     ..meta.clone()
                 };
-                node.set_output_meta(output_port.output_id, new_meta);
+                node.kind.set_output_meta(output_port.output_id, new_meta);
 
                 commands.trigger(RequestOutputPortRelayout {
                     node_entity: output_port.node_entity,
