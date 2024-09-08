@@ -742,7 +742,8 @@ fn add_node_from_undo(
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
-    q_old_node_display: Query<&NodeDisplay>,
+    q_children: Query<&Children>,
+    q_process_time_text: Query<Entity, With<NodeProcessText>>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
@@ -752,13 +753,11 @@ fn add_node_from_undo(
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
     node.kind.store_all();
 
-    let old_node_display = q_old_node_display.get(node_entity).unwrap();
-
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
             index: spawned_node_index,
-            process_time_text: old_node_display.process_time_text
+            process_time_text: *q_children.get(node_entity).unwrap().iter().find(|e| q_process_time_text.contains(**e)).unwrap(),
         })
         .insert(UIContext::Node(node_entity))
         .insert(Visibility::Visible);
