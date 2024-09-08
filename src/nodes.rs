@@ -157,6 +157,7 @@ fn delete_node(
         // keep the entity reference stable (for undo/redo) by not despawning
         commands.entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
+            .remove::<Selected>()
             .insert(Visibility::Hidden);
 
         commands.trigger(UndoableEvent::RemoveNode(UndoableRemoveNodeEvent {
@@ -680,12 +681,5 @@ fn node_kind_name(kind: &RequestSpawnNodeKind) -> &'static str {
     match kind {
         RequestSpawnNodeKind::Example => "Example",
         RequestSpawnNodeKind::Color => "Color",
-    }
-}
-
-fn node_name(kind: &GraphNode) -> &'static str {
-    match kind {
-        GraphNode::Example(_) => "Example",
-        GraphNode::Color(_) => "Color",
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     asset::{
-    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::Field, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
+    }, camera::MainCamera, graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::{Field, FieldMeta}, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, setup::{ApplicationCanvas, CustomGpuDevice, CustomGpuQueue}, ApplicationState
 };
 use bevy::{
     prelude::*,
@@ -383,11 +383,17 @@ fn add_edge(
                 let curve_points = generate_curved_line(start, end, 50);
 
                 // Get the colors from the graph nodes
-                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap();
-                let end_node = pipeline.graph.node_weight(end_port_node_index).unwrap();
+                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap().clone(); // cloning so we can borrow mutably from the graph....can that be improved?
+                let end_node = pipeline.graph.node_weight_mut(end_port_node_index).unwrap();
 
                 // todo: store the old input in meta, but load it back in remove edge
                 // and then make that action undoable
+
+                let old_input_field_meta = end_node.get_input_meta(end_port.input_id).unwrap();
+                end_node.set_input_meta(end_port.input_id, FieldMeta {
+                    visible: old_input_field_meta.visible,
+                    storage: end_node.get_input(end_port.input_id).unwrap()
+                });
 
                 let start_color =
                     port_color(&start_node.get_output(start_port.output_id).unwrap());
@@ -447,11 +453,15 @@ fn remove_edge(
             .graph
             .find_edge(start_port_node_index, end_port_node_index)
         {
-            // if you are undoing and redoing these indices will be false
-            // because fuck you that's why
-
-            // Remove the edge from the graph
             pipeline.graph.remove_edge(edge_index);
+
+            // Set the removed input value back to its stored value
+            // todo: make undoable
+            let end_node = pipeline.graph.node_weight_mut(end_port_node_index).unwrap();
+            end_node.set_input(
+                end_port.input_id, 
+                end_node.get_input_meta(end_port.input_id).unwrap().storage.clone()
+            ).unwrap();
 
             // Find and remove the corresponding EdgeLine entity
             for (entity, edge_line) in q_edges.iter() {
@@ -482,13 +492,16 @@ fn handle_set_input_field(
     let mut pipeline = q_pipeline.single_mut();
     
     if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
-            eprintln!("Failed to set input field: {}", e);
-            return;
-        };
+        if node.get_input(trigger.event().input_id).unwrap() != trigger.event().new_value {
+            if let Err(e) = node.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
+                eprintln!("Failed to set input field: {}", e);
+                return;
+            };
+    
+            commands.trigger(UndoableEvent::SetInputField(trigger.event().clone()));
+            ev_process_pipeline.send(RequestProcessPipeline);
+        }
 
-        commands.trigger(UndoableEvent::SetInputField(trigger.event().clone()));
-        ev_process_pipeline.send(RequestProcessPipeline);
     } else {
         eprintln!("Node not found for input field update");
     }
@@ -503,13 +516,15 @@ fn handle_set_output_field(
     let mut pipeline = q_pipeline.single_mut();
     
     if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if let Err(e) = node.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
-            eprintln!("Failed to set output field: {}", e);
-            return;
-        };
+        if node.get_output(trigger.event().output_id).unwrap() != trigger.event().new_value {
+            if let Err(e) = node.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
+                eprintln!("Failed to set output field: {}", e);
+                return;
+            };
         
-        commands.trigger(UndoableEvent::SetOutputField(trigger.event().clone()));
-        ev_process_pipeline.send(RequestProcessPipeline);
+            commands.trigger(UndoableEvent::SetOutputField(trigger.event().clone()));
+            ev_process_pipeline.send(RequestProcessPipeline);
+        }
     } else {
         eprintln!("Node not found for output field update");
     }

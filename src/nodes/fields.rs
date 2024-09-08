@@ -17,6 +17,21 @@ define_field_enum! {
     }
 }
 
+impl PartialEq for Field {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Field::U32(a), Field::U32(b)) => a == b,
+            (Field::F32(a), Field::F32(b)) => a == b,
+            (Field::Vec4(a), Field::Vec4(b)) => a == b,
+            (Field::LinearRgba(a), Field::LinearRgba(b)) => a == b,
+            (Field::Extent3d(a), Field::Extent3d(b)) => a == b,
+            (Field::TextureFormat(a), Field::TextureFormat(b)) => a == b,
+            (Field::Image(_), Field::Image(_)) => false, // Always return false for Image
+            _ => false, // Different variants are never equal
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct FieldMeta {
     pub visible: bool,
