@@ -11,7 +11,7 @@ use bevy::{
     color::palettes::{
         css::{GREEN, ORANGE, PINK, RED, TEAL, YELLOW},
         tailwind::{GRAY_400, RED_700},
-    }, math::VectorSpace, prelude::*, sprite::MaterialMesh2dBundle, ui::Direction as UIDirection, window::PrimaryWindow
+    }, math::VectorSpace, prelude::*, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{DragEnd, DragStart, Pointer},
@@ -93,7 +93,7 @@ impl InputPort {
             is_hovered: 0.,
         });
 
-        let label_text = input_id.1.replace("_", " ").to_uppercase();
+        let label_text = format_label_text(input_id.1);
 
         let port_entity = spawner
             .spawn_bundle((
@@ -126,11 +126,12 @@ impl InputPort {
                     label_text,
                     TextStyle {
                         font,
-                        font_size: 12.0,
+                        font_size: 16.0,
                         color: Color::WHITE,
                     },
                 ),
-                transform: Transform::from_xyz(-PORT_RADIUS - 5.0, 0.0, 0.5),
+                text_anchor: Anchor::CenterRight,
+                transform: Transform::from_xyz(-PORT_RADIUS * 1.5, 0.0, 0.2),
                 visibility: Visibility::Hidden,
                 ..default()
             })
@@ -162,7 +163,7 @@ impl OutputPort {
             is_hovered: 0.,
         });
 
-        let label_text = output_id.1.replace("_", " ").to_uppercase();
+        let label_text = format_label_text(output_id.1);
 
         let port_entity = spawner
             .spawn_bundle((
@@ -195,11 +196,12 @@ impl OutputPort {
                     label_text,
                     TextStyle {
                         font,
-                        font_size: 12.0,
+                        font_size: 16.0,
                         color: Color::WHITE,
                     },
                 ),
-                transform: Transform::from_xyz(PORT_RADIUS + 5.0, 0.0, 0.5),
+                text_anchor: Anchor::CenterLeft,
+                transform: Transform::from_xyz(PORT_RADIUS * 1.5, 0.0, 0.5),
                 visibility: Visibility::Hidden,
                 ..default()
             })
@@ -647,4 +649,21 @@ pub fn port_color(field: &Field) -> LinearRgba {
         Field::TextureFormat(_) => RED_700.into(),
         Field::Image(_) => GRAY_400.into(),
     }
+}
+
+fn format_label_text(text: &str) -> String {
+    text.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    let mut result = first.to_uppercase().to_string();
+                    result.push_str(&chars.as_str().to_lowercase());
+                    result
+                }
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }

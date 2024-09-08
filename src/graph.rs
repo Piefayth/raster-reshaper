@@ -325,6 +325,7 @@ impl AddEdgeChecked for StableDiGraph<GraphNode, Edge> {
             .ok_or_else(|| format!("Input field {:?} not found in target node", edge.to_field))?;
 
         if !can_convert_field(&output, &input) {
+            println!("output {:?} input {:?}", output, input);
             return Err(format!(
                 "Cannot convert output to input",
             ));
