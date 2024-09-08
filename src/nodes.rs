@@ -103,6 +103,9 @@ pub trait NodeTrait {
     fn get_input_meta(&self, id: InputId) -> Option<&FieldMeta>;
     fn set_output_meta(&mut self, id: OutputId, meta: FieldMeta);
     fn get_output_meta(&self, id: OutputId) -> Option<&FieldMeta>;
+
+    fn store_all(&mut self);
+    fn load_all(&mut self);
 }
 
 declare_node_enum_and_impl_trait! {
@@ -157,7 +160,7 @@ fn delete_node(
             .insert(Visibility::Hidden);
 
         commands.trigger(UndoableEvent::RemoveNode(UndoableRemoveNodeEvent {
-            position: node_transform.translation.truncate(),
+            position: node_transform.translation,
             node: removed_node,
             node_entity,
         }));
@@ -521,7 +524,8 @@ fn add_node(
         }
     };
 
-    let node = pipeline.graph.node_weight(spawned_node_index).unwrap();
+    let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
+    node.store_all();
 
     commands
         .entity(node_entity)
@@ -574,7 +578,7 @@ fn add_node(
             });
             // Spawn input ports
             for input_id in node.input_fields() {
-                let input_port = InputPort::spawn(
+                InputPort::spawn(
                     child_builder,
                     &node,
                     node_entity,
@@ -584,13 +588,13 @@ fn add_node(
                 );
 
                 child_builder.add_command(move |world: &mut World| {
-                    world.trigger(RequestInputPortRelayout { input_port });
+                    world.trigger(RequestInputPortRelayout { node_entity });
                 });
             }
 
             // Spawn output ports
             for output_id in node.output_fields() {
-                let output_port = OutputPort::spawn(
+                OutputPort::spawn(
                     child_builder,
                     &node,
                     node_entity,
@@ -600,13 +604,13 @@ fn add_node(
                 );
 
                 child_builder.add_command(move |world: &mut World| {
-                    world.trigger(RequestOutputPortRelayout { output_port });
+                    world.trigger(RequestOutputPortRelayout { node_entity });
                 });
             }
         });
     
     commands.trigger(UndoableEvent::AddNode(UndoableAddNodeEvent {
-        position: world_position.truncate(),
+        position: world_position,
         node: node.clone(),
         node_entity,
     }));
@@ -623,109 +627,28 @@ fn add_node_from_undo(
     trigger: Trigger<UndoableAddNodeEvent>,
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut images: ResMut<Assets<Image>>,
-    mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
-    mut port_materials: ResMut<Assets<PortMaterial>>,
-    meshes: Res<GeneratedMeshes>,
-    mut node_count: ResMut<NodeCount>,
-    fonts: Res<FontAssets>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
-    node_count.0 += 1;
-
     let node_entity = commands.get_or_spawn(trigger.event().node_entity).id();
 
     let spawned_node_index = pipeline.graph.add_node(trigger.event().node.clone());
-    let node = pipeline.graph.node_weight(spawned_node_index).unwrap();
-    println!("SPAWNED NODW TIH INDEX {:?}", spawned_node_index);
+    let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
+    node.store_all();
 
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
             index: spawned_node_index,
         })
-        .insert(MaterialMesh2dBundle {
-            transform: Transform::from_translation(trigger.event().position.extend(node_count.0 as f32)),
-            mesh: meshes.node_display_quad.clone(),
-            material: node_display_materials.add(NodeDisplayMaterial {
-                title_bar_color: BLUE_600.into(),
-                node_texture: images.add(Image::transparent()),
-                title_bar_height: NODE_TITLE_BAR_SIZE,
-                node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
-                background_color: match node {
-                    GraphNode::Color(cn) => cn.out_color,
-                    _ => GRAY_200.into(),
-                },
-                border_width: 2.,
-                border_color: GRAY_400.into(),
-                default_border_color: GRAY_400.into(),
-                hover_border_color: GRAY_200.into(),
-                focus_border_color: ORANGE.into(),
-            }),
-            ..default()
-        })
         .insert(UIContext::Node(node_entity))
-        .insert(Visibility::Visible)
-        .with_children(|child_builder| {
-            let heading_text_margin_left = 10.;
-            let heading_text_margin_top = 5.;
-
-            // heading text
-            child_builder.spawn(Text2dBundle {
-                text: Text::from_section(
-                    node_name(node),
-                    TextStyle {
-                        font: fonts.deja_vu_sans.clone(),
-                        font_size: 18.,
-                        color: WHITE.into(),
-                    },
-                ),
-                text_anchor: Anchor::TopLeft,
-                transform: Transform::from_xyz(
-                    (-NODE_TEXTURE_DISPLAY_DIMENSION / 2.) + heading_text_margin_left,
-                    ((NODE_TEXTURE_DISPLAY_DIMENSION + NODE_TITLE_BAR_SIZE) / 2.)
-                        - heading_text_margin_top,
-                    0.1, // can't have identical z to parent
-                ),
-                ..default()
-            });
-            // Spawn input ports
-            for input_id in node.input_fields() {
-                let input_port = InputPort::spawn(
-                    child_builder,
-                    &node,
-                    node_entity,
-                    *input_id,
-                    &mut port_materials,
-                    &meshes,
-                );
-
-                child_builder.add_command(move |world: &mut World| {
-                    world.trigger(RequestInputPortRelayout { input_port });
-                });
-            }
-
-            // Spawn output ports
-            for output_id in node.output_fields() {
-                let output_port = OutputPort::spawn(
-                    child_builder,
-                    &node,
-                    node_entity,
-                    *output_id,
-                    &mut port_materials,
-                    &meshes,
-                );
-
-                child_builder.add_command(move |world: &mut World| {
-                    world.trigger(RequestOutputPortRelayout { output_port });
-                });
-            }
-        });
+        .insert(Visibility::Visible);
 
     // TODO - Does it make sense to process the whole graph here, long term?
     // Eventually a newly-added node could have an edge at addition time, so maybe...
+    commands.trigger(RequestOutputPortRelayout { node_entity });
+    commands.trigger(RequestInputPortRelayout { node_entity });
     ev_process_pipeline.send(RequestProcessPipeline);
 }
 

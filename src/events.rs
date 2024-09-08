@@ -106,7 +106,7 @@ pub struct AddNodeEvent {
 
 #[derive(Event, Clone)]
 pub struct UndoableAddNodeEvent {
-    pub position: Vec2,
+    pub position: Vec3,
     pub node: GraphNode,
     pub node_entity: Entity,
 }
@@ -118,7 +118,7 @@ pub struct RemoveNodeEvent {
 
 #[derive(Event, Clone)]
 pub struct UndoableRemoveNodeEvent {
-    pub position: Vec2,
+    pub position: Vec3,
     pub node: GraphNode,
     pub node_entity: Entity,
 }
@@ -385,6 +385,10 @@ fn add_edge(
                 // Get the colors from the graph nodes
                 let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap();
                 let end_node = pipeline.graph.node_weight(end_port_node_index).unwrap();
+
+                // todo: store the old input in meta, but load it back in remove edge
+                // and then make that action undoable
+
                 let start_color =
                     port_color(&start_node.get_output(start_port.output_id).unwrap());
                 let end_color = port_color(&end_node.get_input(end_port.input_id).unwrap());

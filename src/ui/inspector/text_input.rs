@@ -205,7 +205,7 @@ fn drop_text_focus(
         }
     }
 
-    if focused.0.is_some() {
+    if focused.0.is_some() && !q_cosmic_editor.is_empty() {
         let editor = q_cosmic_editor.single();
         editor.with_buffer(|buffer| {
             *last_buffer_value = buffer.get_text();

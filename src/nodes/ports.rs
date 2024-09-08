@@ -47,12 +47,12 @@ impl Plugin for PortPlugin {
 
 #[derive(Event)]
 pub struct RequestInputPortRelayout {
-    pub input_port: Entity,
+    pub node_entity: Entity,
 }
 
 #[derive(Event)]
 pub struct RequestOutputPortRelayout {
-    pub output_port: Entity,
+    pub node_entity: Entity,
 }
 
 #[derive(Component)]
@@ -372,11 +372,9 @@ pub fn reposition_input_ports(
     q_nodes: Query<&NodeDisplay>,
     mut q_input_port: Query<(&mut Transform, &mut Visibility, &InputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
-    q_input_ports: Query<&InputPort>,
 ) {
     let pipeline = pipeline_query.single();
-    let input_port = q_input_ports.get(trigger.event().input_port).unwrap();
-    let input_node_index = q_nodes.get(input_port.node_entity).unwrap().index;
+    let input_node_index = q_nodes.get(trigger.event().node_entity).unwrap().index;
 
     if let Some(node) = pipeline.graph.node_weight(input_node_index) {
         let port_group_vertical_margin = 36.;
@@ -388,7 +386,7 @@ pub fn reposition_input_ports(
 
         for (mut transform, mut visibility, port) in q_input_port
             .iter_mut()
-            .filter(|(_, _, p)| p.node_entity == input_port.node_entity)
+            .filter(|(_, _, p)| p.node_entity == trigger.event().node_entity)
         {
             let meta = node.get_input_meta(port.input_id).unwrap();
             if meta.visible {
@@ -416,11 +414,9 @@ pub fn reposition_output_ports(
     q_nodes: Query<&NodeDisplay>,
     mut q_output_port_mut: Query<(&mut Transform, &mut Visibility, &OutputPort)>,
     pipeline_query: Query<&DisjointPipelineGraph>,
-    q_output_port: Query<&OutputPort>,
 ) {
     let pipeline = pipeline_query.single();
-    let output_port = q_output_port.get(trigger.event().output_port).unwrap();
-    let output_node_index = q_nodes.get(output_port.node_entity).unwrap().index;
+    let output_node_index = q_nodes.get(trigger.event().node_entity).unwrap().index;
 
     if let Some(node) = pipeline.graph.node_weight(output_node_index) {
         let port_group_vertical_margin = 36.;
@@ -432,7 +428,7 @@ pub fn reposition_output_ports(
 
         for (mut transform, mut visibility, port) in q_output_port_mut
             .iter_mut()
-            .filter(|(_, _, p)| p.node_entity == output_port.node_entity)
+            .filter(|(_, _, p)| p.node_entity == trigger.event().node_entity)
         {
             let meta = node.get_output_meta(port.output_id).unwrap();
             if meta.visible {
@@ -478,7 +474,7 @@ fn handle_input_port_visibility_change(
                 node.set_input_meta(input_port.input_id, new_meta);
 
                 commands.trigger(RequestInputPortRelayout {
-                    input_port: trigger.event().input_port,
+                    node_entity: input_port.node_entity,
                 });
 
                 commands.trigger(UndoableEvent::SetInputVisibility(trigger.event().clone()));
@@ -516,7 +512,7 @@ fn handle_output_port_visibility_change(
                 node.set_output_meta(output_port.output_id, new_meta);
 
                 commands.trigger(RequestOutputPortRelayout {
-                    output_port: trigger.event().output_port,
+                    node_entity: output_port.node_entity,
                 });
 
                 commands.trigger(UndoableEvent::SetOutputVisibility(trigger.event().clone()));

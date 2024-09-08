@@ -134,6 +134,36 @@ pub mod macros {
                 fn get_output_meta(&self, id: $crate::nodes::OutputId) -> Option<&$crate::nodes::FieldMeta> {
                     self.output_meta.get(&id)
                 }
+
+                fn store_all(&mut self) {
+                    $(
+                        if let Some(meta) = self.input_meta.get_mut(&Self::$input_field) {
+                            meta.storage = Field::from(self.$input_field.clone());
+                        }
+                    )*
+                    $(
+                        if let Some(meta) = self.output_meta.get_mut(&Self::$output_field) {
+                            meta.storage = Field::from(self.$output_field.clone());
+                        }
+                    )*
+                }
+
+                fn load_all(&mut self) {
+                    $(
+                        if let Some(meta) = self.input_meta.get(&Self::$input_field) {
+                            if let Ok(value) = <$input_type>::try_from(meta.storage.clone()) {
+                                self.$input_field = value;
+                            }
+                        }
+                    )*
+                    $(
+                        if let Some(meta) = self.output_meta.get(&Self::$output_field) {
+                            if let Ok(value) = <$output_type>::try_from(meta.storage.clone()) {
+                                self.$output_field = value;
+                            }
+                        }
+                    )*
+                }
             }
         };
     
@@ -268,6 +298,22 @@ pub mod macros {
                 fn get_output_meta(&self, id: $crate::nodes::OutputId) -> Option<&$crate::nodes::FieldMeta> {
                     match self {
                         $($enum_name::$variant(n) => n.get_output_meta(id),)*
+                    }
+                }
+
+                fn store_all(&mut self) {
+                    match self {
+                        $(
+                            $enum_name::$variant(n) => n.store_all(),
+                        )*
+                    }
+                }
+
+                fn load_all(&mut self) {
+                    match self {
+                        $(
+                            $enum_name::$variant(n) => n.load_all(),
+                        )*
                     }
                 }
             }
