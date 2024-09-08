@@ -39,6 +39,7 @@ impl Plugin for LinearRgbaPlugin {
 pub struct RequestUpdateLinearRgbaInput {
     pub value: LinearRgba,
     pub widget_entity: Entity,
+    pub is_readonly: bool,
 }
 
 #[derive(Event)]
@@ -155,22 +156,26 @@ fn update_linear_rgba_input(
     if let Ok(linear_rgba) = q_linear_rgba_in.get(trigger.event().widget_entity) {
         commands.trigger(RequestUpdateTextInput {
             widget_entity: linear_rgba.red,
-            value: trigger.event().value.red
+            value: trigger.event().value.red,
+            is_readonly: trigger.event().is_readonly,
         });
 
         commands.trigger(RequestUpdateTextInput {
             widget_entity: linear_rgba.blue,
-            value: trigger.event().value.blue
+            value: trigger.event().value.blue,
+            is_readonly: trigger.event().is_readonly,
         });
 
         commands.trigger(RequestUpdateTextInput {
             widget_entity: linear_rgba.green,
-            value: trigger.event().value.green
+            value: trigger.event().value.green,
+            is_readonly: trigger.event().is_readonly,
         });
 
         commands.trigger(RequestUpdateTextInput {
             widget_entity: linear_rgba.alpha,
-            value: trigger.event().value.alpha
+            value: trigger.event().value.alpha,
+            is_readonly: trigger.event().is_readonly,
         });
     }
 

@@ -26,6 +26,7 @@ pub struct TextInputWidget {
 pub struct RequestUpdateTextInput {
     pub value: f32,
     pub widget_entity: Entity,
+    pub is_readonly: bool,
 }
 
 pub struct TextInputHandlerInput {
@@ -136,17 +137,24 @@ impl TextInputWidget {
 
 fn update_text_input(
     trigger: Trigger<RequestUpdateTextInput>,
+    mut commands: Commands,
     mut font_system: ResMut<CosmicFontSystem>,
-    mut cosmic_buffers: Query<&mut CosmicBuffer>,
+    mut cosmic_buffers: Query<(Entity, &mut CosmicBuffer, Option<&ReadOnly>)>,
     q_text_input: Query<&TextInputWidget>,
 ) {
     if let Ok(float_input) = q_text_input.get(trigger.event().widget_entity) {
-        if let Ok(mut buffer) = cosmic_buffers.get_mut(float_input.cosmic_edit) {
+        if let Ok((buffer_entity, mut buffer, maybe_readonly_tag)) = cosmic_buffers.get_mut(float_input.cosmic_edit) {
             buffer.set_text(
                 &mut font_system,
                 &format!("{:.2}", trigger.event().value),
                 Attrs::new().color(Color::WHITE.to_cosmic()),
             );
+
+            if trigger.event().is_readonly {
+                commands.entity(buffer_entity).insert(ReadOnly);
+            } else if maybe_readonly_tag.is_some() {
+                commands.entity(buffer_entity).remove::<ReadOnly>();
+            }
         }
     }
 }

@@ -308,8 +308,6 @@ fn trigger_inspector_updates(
 ) {
     let graph = &q_graph.single().graph;
 
-    // TODO - Don't update boxes that are currently focused.
-
     if let Ok(panel) = q_inspector_panel.get_single() {
         for &node_entity in panel.displayed_nodes.iter() {
             // for every node shown in inspector
@@ -319,6 +317,9 @@ fn trigger_inspector_updates(
 
                 for input_id in node_fields {
                     let field = node.get_input(*input_id).unwrap();
+                    let is_readonly = graph.edges_directed(node_display.index, Direction::Incoming)
+                        .any(|edge| edge.weight().to_field == *input_id);
+
                     match field {
                         Field::U32(_) => {}
                         Field::F32(_) => {}
@@ -331,6 +332,7 @@ fn trigger_inspector_updates(
                                         commands.trigger(RequestUpdateLinearRgbaInput {
                                             value: lrgba_value,
                                             widget_entity: lrgba_entity,
+                                            is_readonly,
                                         });
                                     }
                                 });
