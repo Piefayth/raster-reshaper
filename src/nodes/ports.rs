@@ -5,17 +5,13 @@ use crate::{
 };
 
 use super::{
-    fields::{Field, FieldMeta}, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId
+    fields::{Field, FieldMeta}, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected
 };
 use bevy::{
     color::palettes::{
         css::{GREEN, ORANGE, PINK, RED, TEAL, YELLOW},
         tailwind::{GRAY_400, RED_700},
-    },
-    prelude::*,
-    sprite::MaterialMesh2dBundle,
-    ui::Direction as UIDirection,
-    window::PrimaryWindow,
+    }, math::VectorSpace, prelude::*, sprite::MaterialMesh2dBundle, ui::Direction as UIDirection, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{DragEnd, DragStart, Pointer},
@@ -33,9 +29,17 @@ impl Plugin for PortPlugin {
             (
                 handle_port_hover,
                 handle_port_selection,
+                update_port_label_visibility
             )
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
+
+        app.insert_resource(SelectingPort {
+            port: Entity::PLACEHOLDER,
+            position: Vec2::ZERO,
+            line: Entity::PLACEHOLDER,
+            direction: Direction::Incoming,
+        });
 
         app.observe(handle_input_port_visibility_change);
         app.observe(handle_output_port_visibility_change);
@@ -66,6 +70,9 @@ pub struct OutputPort {
     pub output_id: OutputId,
 }
 
+#[derive(Component)]
+pub struct PortLabel;
+
 impl InputPort {
     pub fn spawn(
         spawner: &mut impl Spawner,
@@ -74,6 +81,7 @@ impl InputPort {
         input_id: InputId,
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
+        font: Handle<Font>,
     ) -> Entity {
         let field = node.kind.get_input(input_id).unwrap();
         let meta = node.kind.get_input_meta(input_id).unwrap();
@@ -85,28 +93,52 @@ impl InputPort {
             is_hovered: 0.,
         });
 
-        spawner
-            .spawn_bundle(MaterialMesh2dBundle {
-                mesh: meshes.port_mesh.clone(),
-                material: port_material,
-                transform: Transform::from_xyz(0.0, 0.0, 0.5),
-                visibility: if meta.visible {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
+        let label_text = input_id.1.replace("_", " ").to_uppercase();
+
+        let port_entity = spawner
+            .spawn_bundle((
+                MaterialMesh2dBundle {
+                    mesh: meshes.port_mesh.clone(),
+                    material: port_material,
+                    transform: Transform::from_xyz(0.0, 0.0, 0.5),
+                    visibility: if meta.visible {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    },
+                    ..default()
                 },
+                PickableBundle::default(),
+                UIContext::InputPort(InputPortContext {
+                    node: node_entity,
+                    port: input_id,
+                }),
+                InputPort {
+                    node_entity,
+                    input_id,
+                },
+            ))
+            .id();
+
+        spawner.add_command(move |world: &mut World| {
+            world.spawn(Text2dBundle {
+                text: Text::from_section(
+                    label_text,
+                    TextStyle {
+                        font,
+                        font_size: 12.0,
+                        color: Color::WHITE,
+                    },
+                ),
+                transform: Transform::from_xyz(-PORT_RADIUS - 5.0, 0.0, 0.5),
+                visibility: Visibility::Hidden,
                 ..default()
             })
-            .insert(InputPort {
-                node_entity,
-                input_id,
-            })
-            .insert(PickableBundle::default())
-            .insert(UIContext::InputPort(InputPortContext {
-                node: node_entity,
-                port: input_id,
-            }))
-            .id()
+            .insert(PortLabel)
+            .set_parent(port_entity);
+        });
+
+        port_entity
     }
 }
 
@@ -118,6 +150,7 @@ impl OutputPort {
         output_id: OutputId,
         port_materials: &mut Assets<PortMaterial>,
         meshes: &Res<GeneratedMeshes>,
+        font: Handle<Font>,
     ) -> Entity {
         let field = node.kind.get_output(output_id).unwrap();
         let meta = node.kind.get_output_meta(output_id).unwrap();
@@ -129,32 +162,88 @@ impl OutputPort {
             is_hovered: 0.,
         });
 
-        spawner
-            .spawn_bundle(MaterialMesh2dBundle {
-                mesh: meshes.port_mesh.clone(),
-                material: port_material,
-                transform: Transform::from_xyz(0.0, 0.0, 0.5),
-                visibility: if meta.visible {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
+        let label_text = output_id.1.replace("_", " ").to_uppercase();
+
+        let port_entity = spawner
+            .spawn_bundle((
+                MaterialMesh2dBundle {
+                    mesh: meshes.port_mesh.clone(),
+                    material: port_material,
+                    transform: Transform::from_xyz(0.0, 0.0, 0.5),
+                    visibility: if meta.visible {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    },
+                    ..default()
                 },
+                PickableBundle::default(),
+                UIContext::OutputPort(OutputPortContext {
+                    node: node_entity,
+                    port: output_id,
+                }),
+                OutputPort {
+                    node_entity,
+                    output_id,
+                },
+            ))
+            .id();
+
+        spawner.add_command(move |world: &mut World| {
+            world.spawn(Text2dBundle {
+                text: Text::from_section(
+                    label_text,
+                    TextStyle {
+                        font,
+                        font_size: 12.0,
+                        color: Color::WHITE,
+                    },
+                ),
+                transform: Transform::from_xyz(PORT_RADIUS + 5.0, 0.0, 0.5),
+                visibility: Visibility::Hidden,
                 ..default()
             })
-            .insert(OutputPort {
-                node_entity,
-                output_id,
-            })
-            .insert(PickableBundle::default())
-            .insert(UIContext::OutputPort(OutputPortContext {
-                node: node_entity,
-                port: output_id,
-            }))
-            .id()
+            .insert(PortLabel)
+            .set_parent(port_entity);
+        });
+
+        port_entity
     }
 }
 
-#[derive(Clone, Copy)]
+fn update_port_label_visibility(
+    selected_nodes: Query<Entity, (With<NodeDisplay>, With<Selected>)>,
+    ports: Query<(Entity, Option<&InputPort>, Option<&OutputPort>, &Children)>,
+    mut label_query: Query<&mut Visibility, With<PortLabel>>,
+    selecting_port: Res<SelectingPort>,
+) {
+    let is_selecting_port = selecting_port.port != Entity::PLACEHOLDER;
+
+    for (_, input_port, output_port, children) in ports.iter() {
+        let node_entity = if let Some(input) = input_port {
+            input.node_entity
+        } else if let Some(output) = output_port {
+            output.node_entity
+        } else {
+            continue;
+        };
+
+        let should_show_label = selected_nodes.contains(node_entity) || is_selecting_port;
+
+        // Update label visibility
+        if let Some(&label_entity) = children.iter().find(|&&child| label_query.contains(child)) {
+            if let Ok(mut label_visibility) = label_query.get_mut(label_entity) {
+                *label_visibility = if should_show_label {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        }
+    }
+}
+
+#[derive(Resource, Clone, Copy)]
 pub struct SelectingPort {
     pub port: Entity,
     pub position: Vec2,
@@ -172,7 +261,7 @@ pub fn handle_port_selection(
     input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
     output_port_query: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut selecting_port: Local<Option<SelectingPort>>,
+    mut selecting_port: ResMut<SelectingPort>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut drag_start_events: EventReader<Pointer<DragStart>>,
     mut drag_end_events: EventReader<Pointer<DragEnd>>,
@@ -230,22 +319,24 @@ pub fn handle_port_selection(
             ))
             .id();
 
-        *selecting_port = Some(SelectingPort {
+        *selecting_port = SelectingPort {
             port: port_entity,
             position: port_position,
             line: line_entity,
             direction,
-        });
+        };
     }
 
     // Update line position during drag
-    if let Some(SelectingPort {
-        position: start_position,
-        line,
-        port,
-        ..
-    }) = *selecting_port
+    if selecting_port.port != Entity::PLACEHOLDER
     {
+        let SelectingPort {
+            position: start_position,
+            line,
+            port,
+            ..
+        } = *selecting_port;
+
         if let Some(cursor_position) = window.cursor_position() {
             if let Some(cursor_world_position) =
                 camera.viewport_to_world(camera_transform, cursor_position)
@@ -306,19 +397,21 @@ pub fn handle_port_selection(
             continue;
         }
 
-        if let Some(SelectingPort {
-            port: start_port,
-            line,
-            direction,
-            ..
-        }) = *selecting_port
+        if selecting_port.port != Entity::PLACEHOLDER
         {
+            let SelectingPort {
+                port: start_port,
+                line,
+                direction,
+                ..
+            } = *selecting_port;
+
             q_snapped_ports.iter().for_each(|snapped_port_entity| {
                 commands.entity(snapped_port_entity).remove::<SnappedPort>();
             });
 
             commands.entity(line).despawn_recursive();
-            *selecting_port = None;
+            selecting_port.port = Entity::PLACEHOLDER;
 
             let maybe_snapped_port = q_snapped_ports.iter().last();
 

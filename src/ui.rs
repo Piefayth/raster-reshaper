@@ -41,6 +41,9 @@ impl Plugin for UiPlugin {
 
 pub trait Spawner {
     fn spawn_bundle(&mut self, bundle: impl Bundle) -> EntityCommands;
+    fn add_command<C>(&mut self, command: C) -> &mut Self
+    where
+        C: FnOnce(&mut World) + Send + Sync + 'static;
 }
 
 // Implement for Commands
@@ -48,12 +51,28 @@ impl<'w, 's> Spawner for Commands<'w, 's> {
     fn spawn_bundle(&mut self, bundle: impl Bundle) -> EntityCommands {
         self.spawn(bundle)
     }
+
+    fn add_command<C>(&mut self, command: C) -> &mut Self
+    where
+        C: FnOnce(&mut World) + Send + Sync + 'static,
+    {
+        self.add(command);
+        self
+    }
 }
 
 // Implement for ChildBuilder
 impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
     fn spawn_bundle(&mut self, bundle: impl Bundle) -> EntityCommands {
         self.spawn(bundle)
+    }
+   
+    fn add_command<C>(&mut self, command: C) -> &mut Self
+    where
+        C: FnOnce(&mut World) + Send + Sync + 'static,
+    {
+        self.add_command(command);
+        self
     }
 }
 

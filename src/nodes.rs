@@ -666,7 +666,7 @@ fn add_node(
         .with_children(|child_builder| {
             let heading_text_margin_left = 10.;
             let heading_text_margin_top = 5.;
-
+            
             // heading text
             child_builder.spawn(Text2dBundle {
                 text: Text::from_section(
@@ -696,6 +696,7 @@ fn add_node(
                     *input_id,
                     &mut port_materials,
                     &meshes,
+                    fonts.deja_vu_sans.clone()
                 );
 
                 child_builder.add_command(move |world: &mut World| {
@@ -712,6 +713,7 @@ fn add_node(
                     *output_id,
                     &mut port_materials,
                     &meshes,
+                    fonts.deja_vu_sans.clone()
                 );
 
                 child_builder.add_command(move |world: &mut World| {
