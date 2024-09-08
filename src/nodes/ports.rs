@@ -10,7 +10,7 @@ use super::{
 use bevy::{
     color::palettes::{
         css::{GREEN, ORANGE, PINK, RED, TEAL, YELLOW},
-        tailwind::GRAY_400,
+        tailwind::{GRAY_400, RED_700},
     },
     prelude::*,
     sprite::MaterialMesh2dBundle,
@@ -253,40 +253,43 @@ pub fn handle_port_selection(
             {
                 let cursor_world_position = cursor_world_position.origin.truncate();
                 if let Ok((_, mut line)) = line_query.get_mut(line) {
-                    let mut end_position = cursor_world_position;
-                    let snap_threshold = 20.0;
-
+                    let snap_threshold = 25.0;
+                    let mut closest_distance = f32::MAX;
+                    let mut closest_entity = Entity::PLACEHOLDER;
+                    let mut closest_position = cursor_world_position;
+    
                     // Check for snapping to input ports
-                    let mut snapped_entity = Entity::PLACEHOLDER;
-
                     for (port_entity, transform, _, _) in input_port_query.iter() {
                         let port_position = transform.translation().truncate();
-                        if port_position.distance(cursor_world_position) < snap_threshold {
-                            end_position = port_position;
-                            snapped_entity = port_entity;
-                            break;
+                        let distance = port_position.distance(cursor_world_position);
+                        if distance < snap_threshold && distance < closest_distance {
+                            closest_distance = distance;
+                            closest_entity = port_entity;
+                            closest_position = port_position;
                         }
                     }
-
+    
                     // Check for snapping to output ports
                     for (port_entity, transform, _, _) in output_port_query.iter() {
                         let port_position = transform.translation().truncate();
-                        if port_position.distance(cursor_world_position) < snap_threshold {
-                            end_position = port_position;
-                            snapped_entity = port_entity;
-                            break;
+                        let distance = port_position.distance(cursor_world_position);
+                        if distance < snap_threshold && distance < closest_distance {
+                            closest_distance = distance;
+                            closest_entity = port_entity;
+                            closest_position = port_position;
                         }
                     }
-
-                    line.points = vec![start_position, end_position];
-
-                    if snapped_entity == Entity::PLACEHOLDER {
-                        // no snaps, clear snapped marker
-                        q_snapped_ports.iter().for_each(|snapped_port_entity| {
-                            commands.entity(snapped_port_entity).remove::<SnappedPort>();
-                        });
-                    } else {
-                        commands.entity(snapped_entity).insert(SnappedPort);
+    
+                    line.points = vec![start_position, closest_position];
+    
+                    // Remove SnappedPort component from all previously snapped ports
+                    q_snapped_ports.iter().for_each(|snapped_port_entity| {
+                        commands.entity(snapped_port_entity).remove::<SnappedPort>();
+                    });
+    
+                    // Add SnappedPort component to the closest entity if one was found
+                    if closest_entity != Entity::PLACEHOLDER {
+                        commands.entity(closest_entity).insert(SnappedPort);
                     }
                 }
             }
@@ -297,28 +300,6 @@ pub fn handle_port_selection(
     if ev_drag_end.len() == 0 {
         return;
     }
-
-    let maybe_hovered_input =
-        input_port_query
-            .iter()
-            .find_map(|(entity, _, _, picking_interaction)| {
-                if matches!(picking_interaction, PickingInteraction::Hovered) {
-                    Some(entity)
-                } else {
-                    None
-                }
-            });
-
-    let maybe_hovered_output =
-        output_port_query
-            .iter()
-            .find_map(|(entity, _, _, picking_interaction)| {
-                if matches!(picking_interaction, PickingInteraction::Hovered) {
-                    Some(entity)
-                } else {
-                    None
-                }
-            });
 
     // Handle drag end
     for event in ev_drag_end {
@@ -336,7 +317,7 @@ pub fn handle_port_selection(
             q_snapped_ports.iter().for_each(|snapped_port_entity| {
                 commands.entity(snapped_port_entity).remove::<SnappedPort>();
             });
-            
+
             commands.entity(line).despawn_recursive();
             *selecting_port = None;
 
@@ -344,14 +325,7 @@ pub fn handle_port_selection(
 
             match direction {
                 Direction::Incoming => {
-                    if let Some(input_port) = maybe_hovered_input {
-                        commands.trigger(AddEdgeEvent {
-                            start_port,
-                            end_port: input_port,
-                        });
-                        println!("Added from hover: {:?}", input_port);
-                    } else if let Some(snapped_port) = maybe_snapped_port {
-                        println!("Added from snap: {:?}", snapped_port);
+                    if let Some(snapped_port) = maybe_snapped_port {
                         commands.trigger(AddEdgeEvent {
                             start_port,
                             end_port: snapped_port,
@@ -359,12 +333,7 @@ pub fn handle_port_selection(
                     }
                 }
                 Direction::Outgoing => {
-                    if let Some(output_port) = maybe_hovered_output {
-                        commands.trigger(AddEdgeEvent {
-                            start_port: output_port,
-                            end_port: start_port,
-                        });
-                    } else if let Some(snapped_port) = maybe_snapped_port {
+                    if let Some(snapped_port) = maybe_snapped_port {
                         commands.trigger(AddEdgeEvent {
                             start_port: snapped_port,
                             end_port: start_port,
@@ -387,25 +356,27 @@ fn handle_port_hover(
 
     for (port_entity, interaction, material_handle) in interaction_query.iter_mut() {
         if let Some(material) = materials.get_mut(material_handle) {
-            match *interaction {
-                PickingInteraction::Pressed => {
-                    material.is_hovered = 1.0;
-                }
-                PickingInteraction::Hovered => {
-                    material.is_hovered = 1.0;
-                }
-                _ => {
-                    material.is_hovered = 0.0;
-                }
-            }
-
             match maybe_snapped_port {
                 Some(snapped_port) => {
                     if port_entity == snapped_port {
                         material.is_hovered = 1.0;
+                    } else {
+                        material.is_hovered = 0.0;
                     }
                 },
-                None => {},
+                None => {
+                    match *interaction {
+                        PickingInteraction::Pressed => {
+                            material.is_hovered = 1.0;
+                        }
+                        PickingInteraction::Hovered => {
+                            material.is_hovered = 1.0;
+                        }
+                        _ => {
+                            material.is_hovered = 0.0;
+                        }
+                    }
+                },
             }
         }
     }
@@ -581,7 +552,7 @@ pub fn port_color(field: &Field) -> LinearRgba {
         Field::Vec4(_) => ORANGE.into(),
         Field::LinearRgba(_) => ORANGE.into(),
         Field::Extent3d(_) => TEAL.into(),
-        Field::TextureFormat(_) => RED.into(),
+        Field::TextureFormat(_) => RED_700.into(),
         Field::Image(_) => GRAY_400.into(),
     }
 }

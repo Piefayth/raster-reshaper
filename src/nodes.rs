@@ -146,11 +146,10 @@ fn delete_node(
 
         for (edge_line_entity, edge_line) in q_edge_lines.iter() {
             if node_ports.contains(&edge_line.start_port) || node_ports.contains(&edge_line.end_port) {
-                commands.entity(edge_line_entity).despawn();
-                commands.trigger(UndoableEvent::RemoveEdge(RemoveEdgeEvent {
+                commands.trigger(RemoveEdgeEvent {
                     start_port: edge_line.start_port,
                     end_port: edge_line.end_port,
-                }));
+                });
             }
         }
 

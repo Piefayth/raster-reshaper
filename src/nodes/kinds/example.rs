@@ -320,11 +320,6 @@ declare_node!(
                     Err(err) => panic!("Failed to map buffer {err}"),
                 });
 
-                // TODO: We have to figure out how to make this yield instead of just blocking here
-                // Otherwise the task is not cancellable
-                // BUT
-                // in the event that we cancel...
-                // ... we need some way to unmap the buffer I think.
                 self.render_device.poll(Maintain::wait()).panic_on_timeout();
 
                 r.recv().expect("Failed to receive map_async message");

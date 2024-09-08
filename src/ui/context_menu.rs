@@ -17,7 +17,7 @@ use bevy_mod_picking::{
 };
 use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction};
 use crate::{
-    asset::FontAssets, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestSpawnNodeKind}, ApplicationState
+    asset::FontAssets, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestSpawnNodeKind, Selected}, ApplicationState
 };
 
 use super::{Spawner, UiRoot};
@@ -39,6 +39,7 @@ impl Plugin for ContextMenuPlugin {
         app.observe(on_made_any_context_menu_selection);
         app.observe(detatch_input);
         app.observe(detatch_output);
+        app.observe(handle_remove_node_request);
     }
 }
 
@@ -132,7 +133,7 @@ impl ContextMenu {
                         child_builder,
                         "Delete",
                         font.clone(),
-                        RemoveNodeEvent {
+                        RequestRemoveNode {
                             node_entity: *entity,
                         },
                     );
@@ -487,5 +488,35 @@ fn detatch_output(
                 }
             }
         }
+    }
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct RequestRemoveNode {
+    pub node_entity: Entity,
+}
+
+pub fn handle_remove_node_request(
+    trigger: Trigger<RequestRemoveNode>,
+    mut commands: Commands,
+    query_selected: Query<Entity, With<Selected>>,
+    query_node_display: Query<&NodeDisplay>,
+) {
+    let mut nodes_to_remove = Vec::new();
+
+    if query_selected.get(trigger.event().node_entity).is_ok() {
+        // If the requested node is selected, remove all selected nodes
+        for selected_entity in query_selected.iter() {
+            if query_node_display.contains(selected_entity) {
+                nodes_to_remove.push(selected_entity);
+            }
+        }
+    } else {
+        // If the requested node is not selected, only remove that node
+        nodes_to_remove.push(trigger.event().node_entity);
+    }
+
+    for node_entity in nodes_to_remove {
+        commands.trigger(RemoveNodeEvent { node_entity });
     }
 }
