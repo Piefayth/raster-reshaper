@@ -54,7 +54,7 @@ impl Plugin for EventsPlugin {
         app.observe(node_events::remove_node_from_undo);
         app.observe(node_events::add_node);
         app.observe(node_events::add_node_from_undo);
-        app.observe(node_events::handle_undoable_drag_node);
+        app.observe(node_events::drag_node_from_undo);
     }
 }
 
@@ -163,6 +163,7 @@ fn flush_undoable_events(
     current_frame_events.is_undo_or_redo = false;
 }
 
+
 fn handle_undo_redo_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut undo_writer: EventWriter<RequestUndo>,
@@ -181,9 +182,6 @@ fn handle_undo_redo_input(
 
 #[derive(Event)]
 pub struct RequestUndo;
-
-#[derive(Event)]
-pub struct RequestRedo;
 
 fn handle_undo(
     mut commands: Commands,
@@ -261,6 +259,9 @@ fn handle_undo(
         }
     }
 }
+
+#[derive(Event)]
+pub struct RequestRedo;
 
 fn handle_redo(
     mut commands: Commands,

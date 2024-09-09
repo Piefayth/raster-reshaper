@@ -1,17 +1,29 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{edge_events::AddEdgeEvent, UndoableEvent}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
-        context_menu::{InputPortContext, OutputPortContext, UIContext}, inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch}, Spawner
-    }, ApplicationState
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS},
+    camera::MainCamera,
+    events::edge_events::AddEdgeEvent,
+    graph::DisjointPipelineGraph,
+    line_renderer::Line,
+    ui::{
+        context_menu::{InputPortContext, OutputPortContext, UIContext},
+        Spawner,
+    },
+    ApplicationState,
 };
 
 use super::{
-    fields::{Field, FieldMeta}, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected
+    fields::{Field},
+    GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, Selected,
 };
 use bevy::{
     color::palettes::{
-        css::{GREEN, ORANGE, PINK, RED, TEAL, YELLOW},
+        css::{ORANGE, PINK, TEAL, YELLOW},
         tailwind::{GRAY_400, RED_700},
-    }, math::VectorSpace, prelude::*, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, window::PrimaryWindow
+    },
+    prelude::*,
+    sprite::{Anchor, MaterialMesh2dBundle},
+    ui::Direction as UIDirection,
+    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
     events::{DragEnd, DragStart, Pointer},
@@ -29,7 +41,7 @@ impl Plugin for PortPlugin {
             (
                 handle_port_hover,
                 handle_port_selection,
-                update_port_label_visibility
+                update_port_label_visibility,
             )
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
@@ -119,22 +131,23 @@ impl InputPort {
             .id();
 
         spawner.add_command(move |world: &mut World| {
-            world.spawn(Text2dBundle {
-                text: Text::from_section(
-                    label_text,
-                    TextStyle {
-                        font,
-                        font_size: 16.0,
-                        color: Color::WHITE,
-                    },
-                ),
-                text_anchor: Anchor::CenterRight,
-                transform: Transform::from_xyz(-PORT_RADIUS * 1.5, 0.0, 0.2),
-                visibility: Visibility::Hidden,
-                ..default()
-            })
-            .insert(PortLabel)
-            .set_parent(port_entity);
+            world
+                .spawn(Text2dBundle {
+                    text: Text::from_section(
+                        label_text,
+                        TextStyle {
+                            font,
+                            font_size: 16.0,
+                            color: Color::WHITE,
+                        },
+                    ),
+                    text_anchor: Anchor::CenterRight,
+                    transform: Transform::from_xyz(-PORT_RADIUS * 1.5, 0.0, 0.2),
+                    visibility: Visibility::Hidden,
+                    ..default()
+                })
+                .insert(PortLabel)
+                .set_parent(port_entity);
         });
 
         port_entity
@@ -189,22 +202,23 @@ impl OutputPort {
             .id();
 
         spawner.add_command(move |world: &mut World| {
-            world.spawn(Text2dBundle {
-                text: Text::from_section(
-                    label_text,
-                    TextStyle {
-                        font,
-                        font_size: 16.0,
-                        color: Color::WHITE,
-                    },
-                ),
-                text_anchor: Anchor::CenterLeft,
-                transform: Transform::from_xyz(PORT_RADIUS * 1.5, 0.0, 0.5),
-                visibility: Visibility::Hidden,
-                ..default()
-            })
-            .insert(PortLabel)
-            .set_parent(port_entity);
+            world
+                .spawn(Text2dBundle {
+                    text: Text::from_section(
+                        label_text,
+                        TextStyle {
+                            font,
+                            font_size: 16.0,
+                            color: Color::WHITE,
+                        },
+                    ),
+                    text_anchor: Anchor::CenterLeft,
+                    transform: Transform::from_xyz(PORT_RADIUS * 1.5, 0.0, 0.5),
+                    visibility: Visibility::Hidden,
+                    ..default()
+                })
+                .insert(PortLabel)
+                .set_parent(port_entity);
         });
 
         port_entity
@@ -328,8 +342,7 @@ pub fn handle_port_selection(
     }
 
     // Update line position during drag
-    if selecting_port.port != Entity::PLACEHOLDER
-    {
+    if selecting_port.port != Entity::PLACEHOLDER {
         let SelectingPort {
             position: start_position,
             line,
@@ -347,7 +360,7 @@ pub fn handle_port_selection(
                     let mut closest_distance = f32::MAX;
                     let mut closest_entity = Entity::PLACEHOLDER;
                     let mut closest_position = cursor_world_position;
-    
+
                     // Check for snapping to input ports
                     for (port_entity, transform, _, _) in input_port_query.iter() {
                         let port_position = transform.translation().truncate();
@@ -358,7 +371,7 @@ pub fn handle_port_selection(
                             closest_position = port_position;
                         }
                     }
-    
+
                     // Check for snapping to output ports
                     for (port_entity, transform, _, _) in output_port_query.iter() {
                         let port_position = transform.translation().truncate();
@@ -369,14 +382,14 @@ pub fn handle_port_selection(
                             closest_position = port_position;
                         }
                     }
-    
+
                     line.points = vec![start_position, closest_position];
-    
+
                     // Remove SnappedPort component from all previously snapped ports
                     q_snapped_ports.iter().for_each(|snapped_port_entity| {
                         commands.entity(snapped_port_entity).remove::<SnappedPort>();
                     });
-    
+
                     // Add SnappedPort component to the closest entity if one was found
                     if closest_entity != Entity::PLACEHOLDER {
                         commands.entity(closest_entity).insert(SnappedPort);
@@ -397,8 +410,7 @@ pub fn handle_port_selection(
             continue;
         }
 
-        if selecting_port.port != Entity::PLACEHOLDER
-        {
+        if selecting_port.port != Entity::PLACEHOLDER {
             let SelectingPort {
                 port: start_port,
                 line,
@@ -439,9 +451,7 @@ pub fn handle_port_selection(
 
 fn handle_port_hover(
     mut materials: ResMut<Assets<PortMaterial>>,
-    mut interaction_query: Query<
-        (Entity, &PickingInteraction, &Handle<PortMaterial>),
-    >,
+    mut interaction_query: Query<(Entity, &PickingInteraction, &Handle<PortMaterial>)>,
     q_snapped_ports: Query<Entity, With<SnappedPort>>,
 ) {
     let maybe_snapped_port = q_snapped_ports.iter().last();
@@ -455,18 +465,16 @@ fn handle_port_hover(
                     } else {
                         material.is_hovered = 0.0;
                     }
-                },
-                None => {
-                    match *interaction {
-                        PickingInteraction::Pressed => {
-                            material.is_hovered = 1.0;
-                        }
-                        PickingInteraction::Hovered => {
-                            material.is_hovered = 1.0;
-                        }
-                        _ => {
-                            material.is_hovered = 0.0;
-                        }
+                }
+                None => match *interaction {
+                    PickingInteraction::Pressed => {
+                        material.is_hovered = 1.0;
+                    }
+                    PickingInteraction::Hovered => {
+                        material.is_hovered = 1.0;
+                    }
+                    _ => {
+                        material.is_hovered = 0.0;
                     }
                 },
             }
@@ -485,7 +493,8 @@ pub fn reposition_input_ports(
 
     if let Some(node) = pipeline.graph.node_weight(input_node_index) {
         let port_group_vertical_margin = 36.;
-        let visible_inputs: Vec<_> = node.kind
+        let visible_inputs: Vec<_> = node
+            .kind
             .input_fields()
             .iter()
             .filter(|&&id| node.kind.get_input_meta(id).unwrap().visible)
@@ -527,7 +536,8 @@ pub fn reposition_output_ports(
 
     if let Some(node) = pipeline.graph.node_weight(output_node_index) {
         let port_group_vertical_margin = 36.;
-        let visible_outputs: Vec<_> = node.kind
+        let visible_outputs: Vec<_> = node
+            .kind
             .output_fields()
             .iter()
             .filter(|&&id| node.kind.get_output_meta(id).unwrap().visible)
@@ -557,8 +567,6 @@ pub fn reposition_output_ports(
         }
     }
 }
-
-
 
 pub fn port_color(field: &Field) -> LinearRgba {
     match field {

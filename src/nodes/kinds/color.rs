@@ -11,11 +11,11 @@ declare_node!(
         #[entity] entity: Entity,
         #[input]  in_color: LinearRgba  { meta: FieldMeta {
             visible: false,
-            storage: Field::LinearRgba(MAGENTA.into())
+            storage: LinearRgba::default().into()
         }},
         #[output] out_color: LinearRgba { meta: FieldMeta {
             visible: true,
-            storage: Field::LinearRgba(MAGENTA.into())
+            storage: LinearRgba::default().into()
         }},
     },
 

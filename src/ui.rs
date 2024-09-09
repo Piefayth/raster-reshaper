@@ -46,7 +46,6 @@ pub trait Spawner {
         C: FnOnce(&mut World) + Send + Sync + 'static;
 }
 
-// Implement for Commands
 impl<'w, 's> Spawner for Commands<'w, 's> {
     fn spawn_bundle(&mut self, bundle: impl Bundle) -> EntityCommands {
         self.spawn(bundle)
@@ -61,7 +60,6 @@ impl<'w, 's> Spawner for Commands<'w, 's> {
     }
 }
 
-// Implement for ChildBuilder
 impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
     fn spawn_bundle(&mut self, bundle: impl Bundle) -> EntityCommands {
         self.spawn(bundle)

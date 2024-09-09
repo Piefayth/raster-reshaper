@@ -359,7 +359,7 @@ pub struct UndoableDragNodeEvent {
     pub new_position: Vec3,
 }
 
-pub fn handle_undoable_drag_node(
+pub fn drag_node_from_undo(
     trigger: Trigger<UndoableDragNodeEvent>,
     mut node_query: Query<&mut Transform, With<NodeDisplay>>,
 ) {
