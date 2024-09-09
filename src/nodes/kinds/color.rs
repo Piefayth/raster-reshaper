@@ -1,18 +1,21 @@
 use bevy::{color::palettes::css::MAGENTA, prelude::*, utils::HashMap};
 
-use crate::{nodes::{fields::{Field, FieldMeta}, macros::macros::declare_node}, setup::{CustomGpuDevice, CustomGpuQueue}};
+use crate::nodes::{
+    fields::{Field, FieldMeta},
+    macros::macros::declare_node,
+};
 
 declare_node!(
     name: ColorNode,
     fields: {
         #[entity] entity: Entity,
-        #[input]  in_color: LinearRgba  { meta: FieldMeta { 
-            visible: false, 
-            storage: Field::LinearRgba(MAGENTA.into()) 
+        #[input]  in_color: LinearRgba  { meta: FieldMeta {
+            visible: false,
+            storage: Field::LinearRgba(MAGENTA.into())
         }},
-        #[output] out_color: LinearRgba { meta: FieldMeta { 
-            visible: true, 
-            storage: Field::LinearRgba(MAGENTA.into()) 
+        #[output] out_color: LinearRgba { meta: FieldMeta {
+            visible: true,
+            storage: Field::LinearRgba(MAGENTA.into())
         }},
     },
 

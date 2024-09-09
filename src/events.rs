@@ -1,16 +1,14 @@
-use crate::{
-    asset::{
-    },graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_color_gradient, generate_curved_line, Line}, nodes::{fields::{Field, FieldMeta}, ports::{port_color, InputPort, OutputPort}, EdgeLine, GraphNode, InputId, NodeDisplay, NodeTrait, OutputId, RequestSpawnNodeKind}, ApplicationState
+use crate::{nodes::{fields::FieldMeta, NodeDisplay}, ApplicationState};
+use bevy::prelude::*;
+use edge_events::{AddEdgeEvent, RemoveEdgeEvent, UndoableAddEdgeEvent, UndoableRemoveEdgeEvent};
+use field_events::{
+    SetInputFieldEvent, SetOutputFieldEvent, UndoableSetInputFieldEvent, UndoableSetInputFieldMetaEvent, UndoableSetOutputFieldEvent, UndoableSetOutputFieldMetaEvent
 };
-use bevy::{
-    prelude::*,
-    ui::Direction as UIDirection,
-};
-use bevy_mod_picking::{
-    prelude::{Pickable},
-};
-use petgraph::{graph::NodeIndex, visit::EdgeRef};
+use node_events::{RemoveNodeEvent, UndoableAddNodeEvent, UndoableDragNodeEvent, UndoableRemoveNodeEvent};
 
+pub mod edge_events;
+pub mod field_events;
+pub mod node_events;
 
 // Maybe call this "DataEventsPlugin"? CoreEvents? What's "EVENTS"?
 pub struct EventsPlugin;
@@ -18,17 +16,14 @@ pub struct EventsPlugin;
 impl Plugin for EventsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            PreUpdate,
-            ((
-                (handle_undo, handle_redo),
-            )
-                .chain())
-            .run_if(in_state(ApplicationState::MainLoop)),
+            Update,
+            (handle_undo, handle_redo)
+                .run_if(in_state(ApplicationState::MainLoop)),
         );
 
         app.add_systems(
-            Update,
-            (handle_undo_redo_input).run_if(in_state(ApplicationState::MainLoop))
+            PreUpdate,
+            (handle_undo_redo_input).run_if(in_state(ApplicationState::MainLoop)),
         );
 
         app.add_systems(Last, flush_undoable_events);
@@ -42,23 +37,36 @@ impl Plugin for EventsPlugin {
 
         app.add_event::<RequestUndo>();
         app.add_event::<RequestRedo>();
-        app.observe(add_edge);
-        app.observe(remove_edge);
+
         app.observe(handle_undoable);
-        app.observe(handle_set_input_field);
-        app.observe(handle_set_output_field);
-        app.observe(handle_undoable_drag_node);
+
+        app.observe(edge_events::add_edge);
+        app.observe(edge_events::remove_edge);
+
+        app.observe(field_events::handle_set_input_field);
+        app.observe(field_events::handle_set_output_field);
+        app.observe(field_events::handle_set_input_field_meta);
+        app.observe(field_events::handle_set_output_field_meta);
+        app.observe(field_events::handle_set_input_field_meta_from_undo);
+        app.observe(field_events::handle_set_output_field_meta_from_undo);
+
+        app.observe(node_events::remove_node);
+        app.observe(node_events::remove_node_from_undo);
+        app.observe(node_events::add_node);
+        app.observe(node_events::add_node_from_undo);
+        app.observe(node_events::handle_undoable_drag_node);
     }
 }
 
+// These don't do anything other than push the underlying event to the undo stack when triggered
 #[derive(Event, Clone)]
 pub enum UndoableEvent {
     AddNode(UndoableAddNodeEvent),
     RemoveNode(UndoableRemoveNodeEvent),
     AddEdge(UndoableAddEdgeEvent),
     RemoveEdge(UndoableRemoveEdgeEvent),
-    SetInputVisibility(UndoableSetInputVisibilityEvent),
-    SetOutputVisibility(UndoableSetOutputVisibilityEvent),
+    SetInputMeta(UndoableSetInputFieldMetaEvent),
+    SetOutputMeta(UndoableSetOutputFieldMetaEvent),
     SetInputField(UndoableSetInputFieldEvent),
     SetOutputField(UndoableSetOutputFieldEvent),
     DragNode(UndoableDragNodeEvent),
@@ -76,15 +84,15 @@ impl From<RemoveEdgeEvent> for UndoableEvent {
     }
 }
 
-impl From<SetInputVisibilityEvent> for UndoableEvent {  // should this just be set input/output meta?
-    fn from(event: SetInputVisibilityEvent) -> Self {
-        UndoableEvent::SetInputVisibility(event)
+impl From<UndoableSetInputFieldMetaEvent> for UndoableEvent {
+    fn from(event: UndoableSetInputFieldMetaEvent) -> Self {
+        UndoableEvent::SetInputMeta(event)
     }
 }
 
-impl From<SetOutputVisibilityEvent> for UndoableEvent {
-    fn from(event: SetOutputVisibilityEvent) -> Self {
-        UndoableEvent::SetOutputVisibility(event)
+impl From<UndoableSetOutputFieldMetaEvent> for UndoableEvent {
+    fn from(event: UndoableSetOutputFieldMetaEvent) -> Self {
+        UndoableEvent::SetOutputMeta(event)
     }
 }
 
@@ -100,88 +108,22 @@ impl From<SetOutputFieldEvent> for UndoableEvent {
     }
 }
 
+impl From<UndoableRemoveNodeEvent> for UndoableEvent {
+    fn from(event: UndoableRemoveNodeEvent) -> Self {
+        UndoableEvent::RemoveNode(event)
+    }
+}
+
+impl From<UndoableAddNodeEvent> for UndoableEvent {
+    fn from(event: UndoableAddNodeEvent) -> Self {
+        UndoableEvent::AddNode(event)
+    }
+}
+
 impl From<UndoableDragNodeEvent> for UndoableEvent {
     fn from(event: UndoableDragNodeEvent) -> Self {
         UndoableEvent::DragNode(event)
     }
-}
-
-#[derive(Event, Clone, Debug)]
-pub struct AddNodeEvent {
-    pub position: Vec2,
-    pub kind: RequestSpawnNodeKind,
-}
-
-#[derive(Event, Clone)]
-pub struct UndoableAddNodeEvent {
-    pub position: Vec3,
-    pub node: GraphNode,
-    pub node_entity: Entity,
-}
-
-#[derive(Event, Clone, Debug)]
-pub struct RemoveNodeEvent {
-    pub node_entity: Entity,
-}
-
-#[derive(Event, Clone)]
-pub struct UndoableRemoveNodeEvent {
-    pub position: Vec3,
-    pub node: GraphNode,
-    pub node_entity: Entity,
-}
-
-#[derive(Event, Clone, Debug)]
-pub struct SetInputFieldEvent {
-    pub node: NodeIndex,
-    pub input_id: InputId,
-    pub old_value: Field,
-    pub new_value: Field,
-}
-type UndoableSetInputFieldEvent = SetInputFieldEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct SetOutputFieldEvent {
-    pub node: NodeIndex,
-    pub output_id: OutputId,
-    pub old_value: Field,
-    pub new_value: Field,
-}
-type UndoableSetOutputFieldEvent = SetOutputFieldEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct AddEdgeEvent {
-    pub start_port: Entity,
-    pub end_port: Entity,
-}
-type UndoableAddEdgeEvent = AddEdgeEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct RemoveEdgeEvent {
-    pub start_port: Entity,
-    pub end_port: Entity,
-}
-type UndoableRemoveEdgeEvent = RemoveEdgeEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct SetInputVisibilityEvent {
-    pub input_port: Entity,
-    pub is_visible: bool,
-}
-type UndoableSetInputVisibilityEvent = SetInputVisibilityEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct SetOutputVisibilityEvent {
-    pub output_port: Entity,
-    pub is_visible: bool,
-}
-type UndoableSetOutputVisibilityEvent = SetOutputVisibilityEvent;
-
-#[derive(Event, Clone, Debug)]
-pub struct UndoableDragNodeEvent {
-    pub node_entity: Entity,
-    pub old_position: Vec3,
-    pub new_position: Vec3,
 }
 
 #[derive(Resource)]
@@ -193,7 +135,7 @@ pub struct HistoricalActions {
 #[derive(Resource, Default)]
 pub struct CurrentFrameUndoableEvents {
     events: Vec<UndoableEvent>,
-    is_undo_or_redo: bool,  // because we dont allow undoable events to re-fire as undoable during an undo
+    is_undo_or_redo: bool, // because we dont allow undoable events to re-fire as undoable during an undo
 }
 
 fn handle_undoable(
@@ -209,12 +151,10 @@ fn flush_undoable_events(
 ) {
     if !current_frame_events.events.is_empty() && !current_frame_events.is_undo_or_redo {
         let events = std::mem::take(&mut current_frame_events.events);
-        
-        // Remove any future actions (redo actions)
+
         let idx = history.current_index;
         history.actions.truncate(idx);
-        
-        // Add the new action
+
         history.actions.push(events);
         history.current_index += 1;
     }
@@ -255,7 +195,7 @@ fn handle_undo(
         if history.current_index > 0 {
             current_frame_events.is_undo_or_redo = true;
             history.current_index -= 1;
-            
+
             if let Some(events) = history.actions.get(history.current_index) {
                 for event in events.iter().rev() {
                     match event {
@@ -271,16 +211,18 @@ fn handle_undo(
                                 end_port: e.end_port,
                             });
                         }
-                        UndoableEvent::SetInputVisibility(e) => {
-                            commands.trigger(SetInputVisibilityEvent {
+                        UndoableEvent::SetInputMeta(e) => {
+                            commands.trigger(UndoableSetInputFieldMetaEvent {
                                 input_port: e.input_port,
-                                is_visible: !e.is_visible,
+                                old_meta: e.meta.clone(),
+                                meta: e.old_meta.clone()
                             });
                         }
-                        UndoableEvent::SetOutputVisibility(e) => {
-                            commands.trigger(SetOutputVisibilityEvent {
+                        UndoableEvent::SetOutputMeta(e) => {
+                            commands.trigger(UndoableSetOutputFieldMetaEvent {
                                 output_port: e.output_port,
-                                is_visible: !e.is_visible,
+                                old_meta: e.meta.clone(),
+                                meta: e.old_meta.clone()
                             });
                         }
                         UndoableEvent::SetInputField(e) => {
@@ -303,21 +245,16 @@ fn handle_undo(
                             commands.trigger(RemoveNodeEvent {
                                 node_entity: e.node_entity,
                             });
-                        },
-                        UndoableEvent::RemoveNode(e) => {
-                            commands.trigger(UndoableAddNodeEvent {
-                                position: e.position,
-                                node: e.node.clone(),
-                                node_entity: e.node_entity,
-                            })
-                        },
-                        UndoableEvent::DragNode(e) => {
-                            commands.trigger(UndoableDragNodeEvent {
-                                node_entity: e.node_entity,
-                                old_position: e.new_position,
-                                new_position: e.old_position,
-                            })
-                        },
+                        }
+                        UndoableEvent::RemoveNode(e) => commands.trigger(UndoableAddNodeEvent {
+                            node: e.node.clone(),
+                            node_entity: e.node_entity,
+                        }),
+                        UndoableEvent::DragNode(e) => commands.trigger(UndoableDragNodeEvent {
+                            node_entity: e.node_entity,
+                            old_position: e.new_position,
+                            new_position: e.old_position,
+                        }),
                     }
                 }
             }
@@ -334,7 +271,7 @@ fn handle_redo(
     for _ in redo_events.read() {
         if history.current_index < history.actions.len() {
             current_frame_events.is_undo_or_redo = true;
-            
+
             if let Some(events) = history.actions.get(history.current_index) {
                 for event in events {
                     match event {
@@ -344,214 +281,33 @@ fn handle_redo(
                         UndoableEvent::RemoveEdge(e) => {
                             commands.trigger(e.clone());
                         }
-                        UndoableEvent::SetInputVisibility(e) => {
+                        UndoableEvent::SetInputMeta(e) => {
                             commands.trigger(e.clone());
                         }
-                        UndoableEvent::SetOutputVisibility(e) => {
+                        UndoableEvent::SetOutputMeta(e) => {
                             commands.trigger(e.clone());
                         }
                         UndoableEvent::SetInputField(e) => {
                             commands.trigger(e.clone());
-                        },
+                        }
                         UndoableEvent::SetOutputField(e) => {
                             commands.trigger(e.clone());
-                        },
+                        }
                         UndoableEvent::AddNode(e) => {
                             commands.trigger(e.clone())
                         },
                         UndoableEvent::RemoveNode(e) => {
                             commands.trigger(e.clone());
-                        },
+                        }
                         UndoableEvent::DragNode(e) => {
                             commands.trigger(e.clone());
                         }
                     }
                 }
             }
-            
+
             history.current_index += 1;
         }
     }
 }
 
-fn add_edge(
-    trigger: Trigger<AddEdgeEvent>,
-    mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
-    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
-    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-    
-    if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
-        q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port),
-    ) {
-        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
-        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
-
-        let edge = Edge {
-            from_field: start_port.output_id,
-            to_field: end_port.input_id,
-        };
-
-        match pipeline
-            .graph
-            .add_edge_checked(start_port_node_index, end_port_node_index, edge)
-        {
-            Ok(()) => {
-                let start = start_transform.translation().truncate();
-                let end = end_transform.translation().truncate();
-                let curve_points = generate_curved_line(start, end, 50);
-
-                 // cloning so we can borrow mutably from the graph....can that be improved?
-                let start_node = pipeline.graph.node_weight(start_port_node_index).unwrap().clone();
-                let end_node = pipeline.graph.node_weight_mut(end_port_node_index).unwrap();
-
-                let old_input_field_meta = end_node.kind.get_input_meta(end_port.input_id).unwrap();
-                end_node.kind.set_input_meta(end_port.input_id, FieldMeta {
-                    visible: old_input_field_meta.visible,
-                    storage: end_node.kind.get_input(end_port.input_id).unwrap()
-                });
-
-                let start_color =
-                    port_color(&start_node.kind.get_output(start_port.output_id).unwrap());
-                let end_color = port_color(&end_node.kind.get_input(end_port.input_id).unwrap());
-
-                let curve_colors =
-                    generate_color_gradient(start_color, end_color, curve_points.len());
-
-                commands.spawn((
-                    Line {
-                        points: curve_points,
-                        colors: curve_colors,
-                        thickness: 2.0,
-                    },
-                    EdgeLine {
-                        start_port: trigger.event().start_port,
-                        end_port: trigger.event().end_port,
-                    },
-                    Transform::from_xyz(0., 0., -999.),
-                    Pickable::IGNORE,
-                ));
-
-                commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
-                ev_process_pipeline.send(RequestProcessPipeline);
-            }
-            Err(e) => {
-                println!("Error adding edge: {}", e);
-            }
-        }
-    } else {
-        println!("Error: Could not find one or both of the ports");
-    }
-}
-
-fn remove_edge(
-    trigger: Trigger<RemoveEdgeEvent>,
-    mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_input_ports: Query<&InputPort>,
-    q_output_ports: Query<&OutputPort>,
-    q_edges: Query<(Entity, &EdgeLine)>,
-    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-
-    if let (Ok(start_port), Ok(end_port)) = (
-        q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port),
-    ) {
-        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
-        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
-
-        // Find the edge in the graph; if the edge removal was triggered by a node removal, 
-            // the edge might be gone from here already (as a side effect of the node removal)
-        if let Some(edge_index) = pipeline
-            .graph
-            .find_edge(start_port_node_index, end_port_node_index)
-        {
-            pipeline.graph.remove_edge(edge_index);
-        } 
-
-        let maybe_edge_line = q_edges.iter().find(|(_, edge)|  {
-            edge.start_port == trigger.event().start_port && edge.end_port == trigger.event().end_port
-        });
-
-        if let Some((edge_entity, _)) = maybe_edge_line {
-            // Set the removed input value back to its stored value
-            // the end node could've, validly, been deleted already, and we can ignore restoring its field
-            if let Some(end_node) = pipeline.graph.node_weight_mut(end_port_node_index) {
-                end_node.kind.set_input(
-                    end_port.input_id, 
-                    end_node.kind.get_input_meta(end_port.input_id).unwrap().storage.clone()
-                ).unwrap();
-            }
-        
-            commands.entity(edge_entity).despawn_recursive();
-            commands.trigger(UndoableEvent::RemoveEdge(trigger.event().clone()));
-            ev_process_pipeline.send(RequestProcessPipeline);
-        }
-    } else {
-        println!("Error: Could not find one or both of the ports");
-    }
-}
-
-fn handle_set_input_field(
-    trigger: Trigger<SetInputFieldEvent>,
-    mut commands: Commands,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-    
-    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if node.kind.get_input(trigger.event().input_id).unwrap() != trigger.event().new_value {
-            if let Err(e) = node.kind.set_input(trigger.event().input_id, trigger.event().new_value.clone()) {
-                eprintln!("Failed to set input field: {}", e);
-                return;
-            };
-    
-            commands.trigger(UndoableEvent::SetInputField(trigger.event().clone()));
-            ev_process_pipeline.send(RequestProcessPipeline);
-        }
-
-    } else {
-        eprintln!("Node not found for input field update");
-    }
-}
-
-fn handle_set_output_field(
-    trigger: Trigger<SetOutputFieldEvent>,
-    mut commands: Commands,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-    
-    if let Some(node) = pipeline.graph.node_weight_mut(trigger.event().node) {
-        if node.kind.get_output(trigger.event().output_id).unwrap() != trigger.event().new_value {
-            if let Err(e) = node.kind.set_output(trigger.event().output_id, trigger.event().new_value.clone()) {
-                eprintln!("Failed to set output field: {}", e);
-                return;
-            };
-        
-            commands.trigger(UndoableEvent::SetOutputField(trigger.event().clone()));
-            ev_process_pipeline.send(RequestProcessPipeline);
-        }
-    } else {
-        eprintln!("Node not found for output field update");
-    }
-}
-
-fn handle_undoable_drag_node(
-    trigger: Trigger<UndoableDragNodeEvent>,
-    mut node_query: Query<&mut Transform, With<NodeDisplay>>,
-) {
-    if let Ok(mut transform) = node_query.get_mut(trigger.event().node_entity) {
-        transform.translation = trigger.event().new_position;
-    }
-}

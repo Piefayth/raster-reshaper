@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Instant};
+use std::borrow::Cow;
 
 use bevy::{
     color::palettes::css::WHITE,
@@ -37,20 +37,20 @@ declare_node!(
     name: ExampleNode,
     fields: {
         #[entity] entity: Entity,
-        #[input] texture_extents: Extent3d   { meta: FieldMeta { 
-            visible: false, 
-            storage: Field::Extent3d(Extent3d { ..default() }) 
+        #[input] texture_extents: Extent3d   { meta: FieldMeta {
+            visible: false,
+            storage: Field::Extent3d(Extent3d { ..default() })
         }},
-        #[input] texture_format: TextureFormat  { meta: FieldMeta { 
-            visible: false, 
-            storage: Field::TextureFormat(TextureFormat::Rgba8Unorm) 
+        #[input] texture_format: TextureFormat  { meta: FieldMeta {
+            visible: false,
+            storage: Field::TextureFormat(TextureFormat::Rgba8Unorm)
         }},
-        #[input] triangle_color: LinearRgba   { meta: FieldMeta { 
-            visible: true, 
+        #[input] triangle_color: LinearRgba   { meta: FieldMeta {
+            visible: true,
             storage: Field::LinearRgba(Color::WHITE.into())
         }},
-        #[output] output_image: Option<Image>  { meta: FieldMeta { 
-            visible: true , 
+        #[output] output_image: Option<Image>  { meta: FieldMeta {
+            visible: true ,
             storage: Field::Image(None),
         }},
         render_device: CustomGpuDevice,

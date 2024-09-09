@@ -1,7 +1,7 @@
 use bevy::{ecs::system::SystemId, prelude::*};
 use bevy_cosmic_edit::{ CosmicFontSystem};
 
-use crate::{events::{SetInputFieldEvent}, graph::DisjointPipelineGraph, nodes::{fields::Field, InputId, NodeDisplay, NodeTrait, OutputId}};
+use crate::{events::field_events::SetInputFieldEvent, graph::DisjointPipelineGraph, nodes::{fields::Field, InputId, NodeDisplay, NodeTrait, OutputId}};
 
 use super::text_input::{RequestUpdateTextInput, TextInputHandlerInput, TextInputWidget};
 
@@ -43,7 +43,6 @@ pub struct RequestUpdateLinearRgbaInput {
 
 #[derive(Event)]
 pub struct RequestUpdateLinearRgbaOutput {
-    pub value: LinearRgba,
     pub widget_entity: Entity,
 }
 
@@ -259,7 +258,6 @@ impl LinearRgbaOutputWidget {
 
 fn update_linear_rgba_output(
     trigger: Trigger<RequestUpdateLinearRgbaOutput>,
-    mut commands: Commands,
     q_linear_rgba_out: Query<&LinearRgbaOutputWidget>,
     q_node_display: Query<&NodeDisplay>,
     q_pipeline: Query<&DisjointPipelineGraph>,

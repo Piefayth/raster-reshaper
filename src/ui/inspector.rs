@@ -16,7 +16,7 @@ use crate::{
     nodes::{
         fields::Field,
         ports::{InputPort, OutputPort},
-        NodeDisplay, NodeTrait, OutputId, Selected,
+        NodeDisplay, NodeTrait, Selected,
     },
     ApplicationState,
 };
@@ -329,7 +329,6 @@ fn trigger_inspector_updates(
                                 |(lrgba_entity, lrgba_widget)| {
                                     if lrgba_widget.node == node_entity {
                                         commands.trigger(RequestUpdateLinearRgbaOutput {
-                                            value: lrgba_value,
                                             widget_entity: lrgba_entity,
                                         });
                                     }

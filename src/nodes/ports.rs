@@ -1,5 +1,5 @@
 use crate::{
-    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{AddEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent, UndoableEvent}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
+    asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS}, camera::MainCamera, events::{edge_events::AddEdgeEvent, UndoableEvent}, graph::DisjointPipelineGraph, line_renderer::Line, ui::{
         context_menu::{InputPortContext, OutputPortContext, UIContext}, inspector::{InputPortVisibilitySwitch, OutputPortVisibilitySwitch}, Spawner
     }, ApplicationState
 };
@@ -41,8 +41,6 @@ impl Plugin for PortPlugin {
             direction: Direction::Incoming,
         });
 
-        app.observe(handle_input_port_visibility_change);
-        app.observe(handle_output_port_visibility_change);
         app.observe(reposition_input_ports);
         app.observe(reposition_output_ports);
     }
@@ -561,83 +559,6 @@ pub fn reposition_output_ports(
 }
 
 
-// this should go in events?
-fn handle_input_port_visibility_change(
-    trigger: Trigger<SetInputVisibilityEvent>,
-    mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
-    q_input_ports: Query<&InputPort>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-    if let Ok(input_port) = q_input_ports.get(trigger.event().input_port) {
-        let input_node_index = q_nodes.get(input_port.node_entity).unwrap().index;
-
-        if let Some(node) = pipeline.graph.node_weight_mut(input_node_index) {
-            if let Some(meta) = node.kind.get_input_meta(input_port.input_id) {
-                let new_meta = FieldMeta {
-                    visible: trigger.event().is_visible,
-                    ..meta.clone()
-                };
-                node.kind.set_input_meta(input_port.input_id, new_meta);
-
-                commands.trigger(RequestInputPortRelayout {
-                    node_entity: input_port.node_entity,
-                });
-
-                commands.trigger(UndoableEvent::SetInputVisibility(trigger.event().clone()));
-
-                // Find the correct switch entity and update it
-                for (mut switch, mut background_color) in q_switches.iter_mut() {
-                    if switch.input_port == trigger.event().input_port {
-                        switch.is_visible = trigger.event().is_visible;
-                        *background_color = if trigger.event().is_visible { GREEN.into() } else { RED.into() };
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn handle_output_port_visibility_change(
-    trigger: Trigger<SetOutputVisibilityEvent>,
-    mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
-    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    mut q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
-    q_output_ports: Query<&OutputPort>,
-) {
-    let mut pipeline = q_pipeline.single_mut();
-    if let Ok(output_port) = q_output_ports.get(trigger.event().output_port) {
-        let output_node_index = q_nodes.get(output_port.node_entity).unwrap().index;
-        if let Some(node) = pipeline.graph.node_weight_mut(output_node_index) {
-            if let Some(meta) = node.kind.get_output_meta(output_port.output_id) {
-                let new_meta = FieldMeta {
-                    visible: trigger.event().is_visible,
-                    ..meta.clone()
-                };
-                node.kind.set_output_meta(output_port.output_id, new_meta);
-
-                commands.trigger(RequestOutputPortRelayout {
-                    node_entity: output_port.node_entity,
-                });
-
-                commands.trigger(UndoableEvent::SetOutputVisibility(trigger.event().clone()));
-
-                // Find the correct switch entity and update it
-                for (mut switch, mut background_color) in q_switches.iter_mut() {
-                    if switch.output_port == trigger.event().output_port {
-                        switch.is_visible = trigger.event().is_visible;
-                        *background_color = if trigger.event().is_visible { GREEN.into() } else { RED.into() };
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
 
 pub fn port_color(field: &Field) -> LinearRgba {
     match field {

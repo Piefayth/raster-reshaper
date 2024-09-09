@@ -1,20 +1,18 @@
 use std::time::Instant;
 
 use crate::{
-    asset::NodeDisplayMaterial,
-    nodes::{fields::can_convert_field, GraphNode, GraphNodeKind, InputId, NodeDisplay, NodeProcessText, NodeTrait, OutputId},
+    nodes::{fields::can_convert_field, GraphNode, InputId, NodeTrait, OutputId},
     ApplicationState,
 };
 use bevy::{
     app::App,
-    asset::{Assets, Handle},
     prelude::*,
     tasks::{block_on, futures_lite::FutureExt, poll_once, AsyncComputeTaskPool, Task},
     utils::{HashMap, HashSet},
 };
 use futures::future::{select_all, BoxFuture};
 use petgraph::{
-    graph::{NodeIndex}, matrix_graph::Zero, prelude::StableDiGraph, visit::{EdgeRef, IntoNodeReferences}, Direction
+    graph::NodeIndex, matrix_graph::Zero, prelude::StableDiGraph, visit::EdgeRef, Direction,
 };
 
 pub struct GraphPlugin;
@@ -23,14 +21,13 @@ impl Plugin for GraphPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (poll_processed_pipeline, process_pipeline).chain().run_if(in_state(ApplicationState::MainLoop)),
-        )
-        .observe(update_nodes);
+            (poll_processed_pipeline, process_pipeline)
+                .chain()
+                .run_if(in_state(ApplicationState::MainLoop)),
+        );
 
-    
         app.add_event::<RequestProcessPipeline>();
         app.init_resource::<PendingReprocess>();
-        
     }
 }
 
@@ -61,51 +58,6 @@ pub struct ProcessNode {
 pub struct Edge {
     pub from_field: OutputId,
     pub to_field: InputId,
-}
-
-// Extract data from updated graph to the properties of the display entities
-fn update_nodes(
-    _trigger: Trigger<GraphWasUpdated>,
-    mut commands: Commands,
-    q_pipeline: Query<&DisjointPipelineGraph>,
-    mut q_initialized_nodes: Query<(&mut NodeDisplay, &Handle<NodeDisplayMaterial>)>,
-    mut q_process_time_text: Query<&mut Text, With<NodeProcessText>>,
-    mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<NodeDisplayMaterial>>,
-) {
-    let graph = &q_pipeline.single().graph;
-
-    for (idx, node) in graph.node_references() {
-        let probably_node = q_initialized_nodes.get_mut(node.kind.entity());
-
-        match probably_node {
-            Ok((mut node_display, material_handle)) => {
-                node_display.index = idx; // The NodeIndex could've changed if the graph was modified...is that still true with the stable graph? i think no UNLESS we start preserving index across undo/redo
-
-                if let Ok(mut text) = q_process_time_text.get_mut(node_display.process_time_text) {
-                    text.sections[0].value = format!("{:?}", node.last_process_time);
-                };
-
-                let material = materials.get_mut(material_handle.id()).unwrap();
-                let old_image = images.get_mut(material.node_texture.id()).expect(
-                    "Found an image handle on a node sprite that does not reference a known image.",
-                );
-                match &node.kind {
-                    GraphNodeKind::Example(ex) => {
-                        if let Some(image) = &ex.output_image {
-                            *old_image = image.clone();
-                        }
-                    }
-                    GraphNodeKind::Color(color_node) => {
-                        material.background_color = color_node.out_color;
-                    }
-                }
-            }
-            Err(_) => {
-                panic!("A node in the graph did not have a matching display entity.");
-            }
-        }
-    }
 }
 
 // Check if graph processing is complete.
@@ -198,7 +150,8 @@ fn process_pipeline(
                 for node in new_nodes_to_process.into_iter() {
                     in_flight_nodes.insert(node.index);
 
-                    let node_dependencies = graph_copy.edges_directed(node.index, Direction::Incoming);
+                    let node_dependencies =
+                        graph_copy.edges_directed(node.index, Direction::Incoming);
 
                     let mut node_with_resolved_dependencies = node.clone();
 
@@ -320,15 +273,14 @@ impl AddEdgeChecked for StableDiGraph<GraphNode, Edge> {
                 edge.from_field
             )
         })?;
-        let input = to_node.kind
+        let input = to_node
+            .kind
             .get_input(edge.to_field)
             .ok_or_else(|| format!("Input field {:?} not found in target node", edge.to_field))?;
 
         if !can_convert_field(&output, &input) {
             println!("output {:?} input {:?}", output, input);
-            return Err(format!(
-                "Cannot convert output to input",
-            ));
+            return Err(format!("Cannot convert output to input",));
         }
 
         let input_already_used = self

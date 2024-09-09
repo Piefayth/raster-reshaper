@@ -1,12 +1,25 @@
+use crate::{
+    asset::FontAssets,
+    events::{
+        edge_events::RemoveEdgeEvent,
+        node_events::{AddNodeEvent, RemoveNodeEvent},
+    },
+    graph::DisjointPipelineGraph,
+    nodes::{
+        ports::{InputPort, OutputPort},
+        InputId, NodeDisplay, OutputId, RequestSpawnNodeKind, Selected,
+    },
+    ApplicationState,
+};
 use bevy::{
     color::palettes::{
-        css::{ WHITE},
+        css::WHITE,
         tailwind::{GRAY_600, GRAY_800},
     },
     ecs::system::EntityCommands,
     prelude::*,
-    window::PrimaryWindow,
     ui::Direction as UIDirection,
+    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
     events::{Click, Down, Out, Over, Pointer, Up},
@@ -15,9 +28,6 @@ use bevy_mod_picking::{
     PickableBundle,
 };
 use petgraph::{visit::EdgeRef, Direction};
-use crate::{
-    asset::FontAssets, events::{AddNodeEvent, RemoveEdgeEvent, RemoveNodeEvent}, graph::DisjointPipelineGraph, nodes::{ports::{InputPort, OutputPort}, InputId, NodeDisplay, OutputId, RequestSpawnNodeKind, Selected}, ApplicationState
-};
 
 use super::{Spawner, UiRoot};
 
@@ -125,7 +135,7 @@ impl ContextMenu {
             }
             UIContext::Inspector => {
                 // what children go here
-            },
+            }
             UIContext::Node(entity) => {
                 ec.with_children(|child_builder| {
                     ContextMenuEntry::spawn(
@@ -150,7 +160,7 @@ impl ContextMenu {
                         },
                     );
                 });
-            },
+            }
             UIContext::OutputPort(output_port_context) => {
                 ec.with_children(|child_builder| {
                     ContextMenuEntry::spawn(
@@ -163,7 +173,7 @@ impl ContextMenu {
                         },
                     );
                 });
-            },
+            }
         }
 
         ec
@@ -238,8 +248,15 @@ pub fn open_context_menu(
 ) {
     let right_click_event = mouse_events
         .read()
-        .filter(|event| event.button == PointerButton::Secondary && q_contextualized.contains(event.target))
-        .max_by(|a, b| a.hit.depth.partial_cmp(&b.hit.depth).unwrap_or(std::cmp::Ordering::Equal));
+        .filter(|event| {
+            event.button == PointerButton::Secondary && q_contextualized.contains(event.target)
+        })
+        .max_by(|a, b| {
+            a.hit
+                .depth
+                .partial_cmp(&b.hit.depth)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
     // If there's no right-click event on an entity configured with UIContext, bail
     let right_click_event = match right_click_event {
@@ -464,7 +481,6 @@ fn detatch_output(
         .iter()
         .find(|(_, port)| port.node_entity == target_node && port.output_id == target_port)
     {
-        
         for edge in pipeline
             .graph
             .edges_directed(target_node_index, Direction::Outgoing)
@@ -472,8 +488,7 @@ fn detatch_output(
             if edge.weight().from_field == target_port {
                 if let Some((input_entity, _)) = q_input_ports.iter().find(|(_, in_port)| {
                     let input_node_index = q_nodes.get(in_port.node_entity).unwrap().index;
-                    input_node_index == edge.target()
-                        && in_port.input_id == edge.weight().to_field
+                    input_node_index == edge.target() && in_port.input_id == edge.weight().to_field
                 }) {
                     commands.trigger(RemoveEdgeEvent {
                         start_port: target_port_entity,

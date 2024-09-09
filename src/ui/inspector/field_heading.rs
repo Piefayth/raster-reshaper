@@ -5,17 +5,15 @@ use bevy::{
 };
 use bevy_mod_picking::{
     events::{Down, Pointer},
-    prelude::{PointerButton},
+    prelude::PointerButton,
 };
 use petgraph::{visit::EdgeRef, Direction};
 
 use crate::{
-    events::{
-        RemoveEdgeEvent, SetInputVisibilityEvent, SetOutputVisibilityEvent,
-    },
+    events::{edge_events::RemoveEdgeEvent, field_events::{SetInputFieldMetaEvent, SetOutputFieldMetaEvent}},
     graph::DisjointPipelineGraph,
     nodes::{
-        ports::{InputPort, OutputPort}, NodeDisplay, NodeTrait
+        fields::FieldMeta, ports::{InputPort, OutputPort}, NodeDisplay, NodeTrait
     },
 };
 
@@ -121,27 +119,28 @@ pub fn on_click_input_visibility_switch(
     mut down_events: EventReader<Pointer<Down>>,
     q_nodes: Query<&NodeDisplay>,
     q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
-    q_pipeline: Query<&DisjointPipelineGraph>,
+    mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
     q_output_ports: Query<(Entity, &OutputPort)>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
             if let Ok((switch, _)) = q_switches.get(event.target) {
-                let pipeline = q_pipeline.single();
+                let mut pipeline = q_pipeline.single_mut();
                 let port = q_input_ports.get(switch.input_port).unwrap();
                 let port_node_index = q_nodes.get(port.node_entity).unwrap().index;
 
-                if let Some(node) = pipeline.graph.node_weight(port_node_index) {
+                if let Some(ref mut node) = pipeline.graph.node_weight_mut(port_node_index) {
                     if let Some(meta) = node.kind.get_input_meta(port.input_id) {
-                        let new_visibility = !meta.visible;
-
-                        commands.trigger(SetInputVisibilityEvent {
+                        commands.trigger(SetInputFieldMetaEvent {
                             input_port: switch.input_port,
-                            is_visible: new_visibility,
+                            meta: FieldMeta {
+                                visible: !meta.visible,
+                                ..meta.clone()
+                            },
                         });
 
-                        if !new_visibility {
+                        if meta.visible {   // i.e field WAS visible, now hidden
                             for edge in pipeline
                                 .graph
                                 .edges_directed(port_node_index, Direction::Incoming)
@@ -149,7 +148,8 @@ pub fn on_click_input_visibility_switch(
                                 if edge.weight().to_field == port.input_id {
                                     if let Some((output_entity, _)) =
                                         q_output_ports.iter().find(|(_, out_port)| {
-                                            let out_port_node_index = q_nodes.get(out_port.node_entity).unwrap().index;
+                                            let out_port_node_index =
+                                                q_nodes.get(out_port.node_entity).unwrap().index;
                                             out_port_node_index == edge.source()
                                                 && out_port.output_id == edge.weight().from_field
                                         })
@@ -187,14 +187,15 @@ pub fn on_click_output_visibility_switch(
 
                 if let Some(node) = pipeline.graph.node_weight(port_node_index) {
                     if let Some(meta) = node.kind.get_output_meta(port.output_id) {
-                        let new_visibility = !meta.visible;
-
-                        commands.trigger(SetOutputVisibilityEvent {
+                        commands.trigger(SetOutputFieldMetaEvent {
                             output_port: switch.output_port,
-                            is_visible: new_visibility,
+                            meta: FieldMeta {
+                                visible: !meta.visible,
+                                ..meta.clone()
+                            },
                         });
 
-                        if !new_visibility {
+                        if meta.visible {   // i.e field WAS visible, now hidden
                             for edge in pipeline
                                 .graph
                                 .edges_directed(port_node_index, Direction::Outgoing)
@@ -202,7 +203,8 @@ pub fn on_click_output_visibility_switch(
                                 if edge.weight().from_field == port.output_id {
                                     if let Some((input_entity, _)) =
                                         q_input_ports.iter().find(|(_, in_port)| {
-                                            let in_port_node_index = q_nodes.get(in_port.node_entity).unwrap().index;
+                                            let in_port_node_index =
+                                                q_nodes.get(in_port.node_entity).unwrap().index;
                                             in_port_node_index == edge.target()
                                                 && in_port.input_id == edge.weight().to_field
                                         })
