@@ -7,7 +7,7 @@ use bevy_mod_picking::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::ApplicationState;
+use crate::{graph::DisjointPipelineGraph, ApplicationState};
 
 use super::{
     context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext},
@@ -22,6 +22,8 @@ impl Plugin for MenuBarPlugin {
         app.add_systems(Update, (file_save_complete, file_load_complete).run_if(in_state(ApplicationState::MainLoop)));
         
         app.observe(handle_save_request).observe(handle_load_request);
+
+        app.world_mut().spawn(WorkingFilename(None));
     }
 }
 
@@ -63,28 +65,47 @@ struct SaveFile {
     version: u32,
 }
 
+#[derive(Component, Clone, Deref, DerefMut)]
+pub struct WorkingFilename(Option<String>);
+
 pub fn handle_save_request(
     trigger: Trigger<SaveEvent>,
+    q_graph: Query<&DisjointPipelineGraph>,
+    q_working_filename: Query<&WorkingFilename>,
     mut commands: Commands,
 ) {
     let maybe_serialized = bincode::serialize(&SaveFile {
         version: 2,
     });
 
+    let working_file_name: &Option<String> = &q_working_filename.single().0;
+    let file_name = match working_file_name {
+        Some(name) => name,
+        None => &String::from("new_project"),
+    };
+
     if let Ok(serialized) = maybe_serialized {
         commands
             .dialog()
             .add_filter("Raster Reshaper Project", &["rrproj"])
-            .set_file_name("new_project")
+            .set_file_name(file_name)
             .save_file::<SaveFile>(serialized);
     }
 
 }
 
-fn file_save_complete(mut ev_saved: EventReader<DialogFileSaved<SaveFile>>) {
+fn file_save_complete(
+    mut ev_saved: EventReader<DialogFileSaved<SaveFile>>,
+    mut q_working_filename: Query<&mut WorkingFilename>,
+) {
     for ev in ev_saved.read() {
         match ev.result {
-            Ok(_) => eprintln!("File {} successfully saved", ev.file_name),
+            Ok(_) => {
+                eprintln!("File {} successfully saved", ev.file_name);
+                if let Ok(mut working_filename) = q_working_filename.get_single_mut() {
+                    working_filename.0 = Some(ev.file_name.clone());
+                }
+            },
             Err(ref err) => eprintln!("Failed to save {}: {}", ev.file_name, err),
         }
     }
@@ -93,8 +114,17 @@ fn file_save_complete(mut ev_saved: EventReader<DialogFileSaved<SaveFile>>) {
 pub fn handle_load_request(
     trigger: Trigger<LoadEvent>,
     mut commands: Commands,
+    q_working_filename: Query<&WorkingFilename>,
 ) {
-    commands.dialog().load_file::<SaveFile>();
+    let mut builder = commands.dialog();
+
+    if let Ok(working_filename) = q_working_filename.get_single() {
+        if let Some(file_name) = &working_filename.0 {
+            builder = builder.set_file_name(file_name);
+        }
+    }
+
+    builder.load_file::<SaveFile>();
 }
 
 fn file_load_complete(mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>) {
