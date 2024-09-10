@@ -176,30 +176,6 @@ pub mod macros {
         };
     }
 
-    macro_rules! define_field_enum {
-        (
-            $(#[$meta:meta])*
-            $vis:vis enum $name:ident {
-                $(
-                    $variant:ident($type:ty)
-                ),* $(,)?
-            }
-        ) => {
-            $(#[$meta])*
-            $vis enum $name {
-                $($variant($type),)*
-            }
-
-            $(
-                impl From<$type> for $name {
-                    fn from(value: $type) -> Self {
-                        $name::$variant(value)
-                    }
-                }
-            )*
-        }
-    }
-
     macro_rules! declare_node_enum_and_impl_trait {
         (
             $(#[$meta:meta])*
@@ -322,5 +298,4 @@ pub mod macros {
 
     pub(crate) use declare_node;
     pub(crate) use declare_node_enum_and_impl_trait;
-    pub(crate) use define_field_enum;
 }

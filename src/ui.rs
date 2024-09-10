@@ -1,4 +1,4 @@
-use crate::ApplicationState;
+use crate::{asset::FontAssets, ApplicationState};
 use bevy::{ecs::system::EntityCommands, prelude::ChildBuilder, prelude::*};
 use bevy_cosmic_edit::{
     change_active_editor_ui, deselect_editor_on_esc, CosmicEditPlugin, CosmicFontConfig,
@@ -6,9 +6,11 @@ use bevy_cosmic_edit::{
 use bevy_mod_picking::prelude::Pickable;
 use context_menu::{ContextMenuPlugin, UIContext};
 use inspector::{InspectorPanel, InspectorPlugin};
+use menu_bar::{MenuBar, MenuBarPlugin};
 
 pub mod context_menu;
 pub mod inspector;
+pub mod menu_bar;
 
 pub struct UiPlugin;
 
@@ -24,6 +26,7 @@ impl Plugin for UiPlugin {
         app.add_plugins((
             ContextMenuPlugin,
             InspectorPlugin,
+            MenuBarPlugin,
             CosmicEditPlugin {
                 font_config,
                 ..default()
@@ -37,6 +40,93 @@ impl Plugin for UiPlugin {
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
     }
+}
+
+#[derive(Component)]
+pub struct UiRoot;
+
+#[derive(Component)]
+pub struct NodeEditArea;
+
+fn ui_setup(
+    mut commands: Commands,
+    fonts: Res<FontAssets>,
+) {
+    let ui_root = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
+                display: Display::Flex,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Name::new("UI Root"))
+        .insert(UiRoot)
+        .insert(Pickable::IGNORE)
+        .id();
+    
+    let root_vertical_layout = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Name::new("root_vertical_layout"))
+        .insert(Pickable::IGNORE)
+        .id();
+
+    let everything_but_menu_bar = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
+                display: Display::Flex,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Pickable::IGNORE)
+        .id();
+
+    let node_edit_area = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(80.),
+                height: Val::Percent(100.),
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Name::new("Node Edit Area"))
+        .insert(NodeEditArea)
+        .insert(UIContext::NodeEditArea)
+        .insert(Pickable {
+            should_block_lower: false,
+            is_hoverable: true,
+        })
+        .id();
+
+    let menu_bar = MenuBar::spawn(&mut commands, fonts.deja_vu_sans.clone());
+
+    let inspector_panel = InspectorPanel::spawn(&mut commands);
+
+    commands
+        .entity(ui_root)
+        .push_children(&[root_vertical_layout]);
+    
+    commands
+        .entity(root_vertical_layout)
+        .push_children(&[menu_bar, everything_but_menu_bar]);
+
+    commands.entity(everything_but_menu_bar)
+        .push_children(&[node_edit_area, inspector_panel]);
 }
 
 pub trait Spawner {
@@ -72,51 +162,4 @@ impl<'w, 's, 'a> Spawner for ChildBuilder<'a> {
         self.add_command(command);
         self
     }
-}
-
-#[derive(Component)]
-pub struct UiRoot;
-
-#[derive(Component)]
-pub struct NodeEditArea;
-
-fn ui_setup(mut commands: Commands) {
-    let ui_root = commands
-        .spawn(NodeBundle {
-            style: Style {
-                width: Val::Percent(100.),
-                height: Val::Percent(100.),
-                display: Display::Flex,
-                ..default()
-            },
-            ..default()
-        })
-        .insert(Name::new("UI Root"))
-        .insert(UiRoot)
-        .insert(Pickable::IGNORE)
-        .id();
-
-    let node_edit_area = commands
-        .spawn(NodeBundle {
-            style: Style {
-                width: Val::Percent(80.),
-                height: Val::Percent(100.),
-                ..default()
-            },
-            ..default()
-        })
-        .insert(Name::new("Node Edit Area"))
-        .insert(NodeEditArea)
-        .insert(UIContext::NodeEditArea)
-        .insert(Pickable {
-            should_block_lower: false,
-            is_hoverable: true,
-        })
-        .id();
-
-    let inspector_panel = InspectorPanel::spawn(&mut commands);
-
-    commands
-        .entity(ui_root)
-        .push_children(&[node_edit_area, inspector_panel]);
 }

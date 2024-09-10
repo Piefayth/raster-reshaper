@@ -22,16 +22,77 @@ use bevy::{
     },
     utils::HashMap,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     nodes::{
-        fields::{Field, FieldMeta},
-        macros::macros::declare_node,
-        shared::{Vertex, U32_SIZE},
-        InputId,
+        fields::{Field, FieldMeta}, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, InputId, NodeTrait, OutputId, SerializableInputId, SerializableOutputId
     },
     setup::{CustomGpuDevice, CustomGpuQueue},
 };
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SerializableExampleNode {
+    entity: Entity,
+    texture_extents: Extent3d,
+    texture_format: TextureFormat,
+    triangle_color: LinearRgba,
+    input_meta: HashMap<SerializableInputId, FieldMeta>,
+    output_meta: HashMap<SerializableOutputId, FieldMeta>
+}
+
+impl From<&ExampleNode> for SerializableExampleNode {
+    fn from(node: &ExampleNode) -> Self {
+        SerializableExampleNode {
+            entity: node.entity,
+            texture_extents: node.texture_extents,
+            texture_format: node.texture_format,
+            triangle_color: node.triangle_color,
+            input_meta: node.input_meta.iter().map(|(k, v)| (SerializableInputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
+            output_meta: node.output_meta.iter().map(|(k, v)| (SerializableOutputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
+        }
+    }
+}
+
+impl ExampleNode {
+    pub fn from_serializable(
+        serialized: SerializableExampleNode,
+        render_device: &CustomGpuDevice,
+        render_queue: &CustomGpuQueue,
+        fragment_source: &String,
+        vert_source: &String,
+    ) -> Self {
+        let mut node = Self::new(
+            serialized.entity, // TODO: fresh entity
+            render_device,
+            render_queue,
+            fragment_source,
+            vert_source,
+            serialized.texture_extents.width,
+            serialized.texture_format,
+        );
+
+        node.texture_extents = serialized.texture_extents;
+        node.texture_format = serialized.texture_format;
+        node.triangle_color = serialized.triangle_color;
+
+        let input_fields: Vec<InputId> = node.input_fields().to_vec();
+        for &input_id in &input_fields {
+            if let Some(meta) = serialized.input_meta.get(&SerializableInputId(input_id.0.to_string(), input_id.1.to_string())) {
+                node.set_input_meta(input_id, meta.clone());
+            }
+        }
+
+        let output_fields: Vec<OutputId> = node.output_fields().to_vec();
+        for &output_id in &output_fields {
+            if let Some(meta) = serialized.output_meta.get(&SerializableOutputId(output_id.0.to_string(), output_id.1.to_string())) {
+                node.set_output_meta(output_id, meta.clone());
+            }
+        }
+
+        node
+    }
+}
 
 declare_node!(
     name: ExampleNode,

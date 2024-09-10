@@ -1,19 +1,67 @@
-use super::macros::macros::define_field_enum;
 use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat},
 };
+use serde::{Deserialize, Deserializer, Serialize};
 
-define_field_enum! {
-    #[derive(Clone, Debug)]
-    pub enum Field {
-        U32(u32),
-        F32(f32),
-        Vec4(Vec4),
-        LinearRgba(LinearRgba),
-        Extent3d(Extent3d),
-        TextureFormat(TextureFormat),
-        Image(Option<Image>)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Field {
+    U32(u32),
+    F32(f32),
+    Vec4(Vec4),
+    LinearRgba(LinearRgba),
+    Extent3d(Extent3d),
+    TextureFormat(TextureFormat),
+    #[serde(skip_serializing, deserialize_with = "deserialize_none_image")] // we do not need to store image field values
+    Image(Option<Image>),
+}
+
+fn deserialize_none_image<'de, D>(_: D) -> Result<Option<Image>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(None)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FieldMeta {
+    pub visible: bool,
+    pub storage: Field,
+}
+
+impl From<u32> for Field {
+    fn from(value: u32) -> Self {
+        Field::U32(value)
+    }
+}
+impl From<f32> for Field {
+    fn from(value: f32) -> Self {
+        Field::F32(value)
+    }
+}
+impl From<Vec4> for Field {
+    fn from(value: Vec4) -> Self {
+        Field::Vec4(value)
+    }
+}
+impl From<LinearRgba> for Field {
+    fn from(value: LinearRgba) -> Self {
+        Field::LinearRgba(value)
+    }
+}
+impl From<Extent3d> for Field {
+    fn from(value: Extent3d) -> Self {
+        Field::Extent3d(value)
+    }
+}
+impl From<TextureFormat> for Field {
+    fn from(value: TextureFormat) -> Self {
+        Field::TextureFormat(value)
+    }
+}
+impl From<Option<Image>> for Field {
+    fn from(value: Option<Image>) -> Self {
+        Field::Image(value)
     }
 }
 
@@ -30,12 +78,6 @@ impl PartialEq for Field {
             _ => false, // Different variants are never equal
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct FieldMeta {
-    pub visible: bool,
-    pub storage: Field,
 }
 
 impl TryFrom<Field> for u32 {

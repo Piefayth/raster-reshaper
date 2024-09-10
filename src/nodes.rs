@@ -33,6 +33,7 @@ use kinds::example::ExampleNode;
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::{graph::NodeIndex, visit::IntoNodeReferences};
 use ports::{InputPort, OutputPort, PortPlugin};
+use serde::{Deserialize, Serialize};
 
 pub struct NodePlugin;
 
@@ -64,11 +65,15 @@ pub struct NodeDisplay {
 #[derive(Deref, DerefMut, Resource)]
 pub struct NodeCount(pub u32);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct InputId(pub &'static str, pub &'static str);
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct SerializableInputId(pub String, pub String);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct OutputId(pub &'static str, pub &'static str);
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct SerializableOutputId(pub String, pub String);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum FieldId {

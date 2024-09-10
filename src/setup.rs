@@ -35,6 +35,7 @@ fn setup_scene(
 ) {
     let mut window = windows.single_mut();
     window.present_mode = PresentMode::Immediate;
+    window.title = String::from("Raster Reshaper");
 
     commands.spawn(MaterialMesh2dBundle {
         mesh: meshes.canvas_quad.clone(),

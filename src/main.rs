@@ -23,7 +23,7 @@ fn main() {
         .add_plugins(camera::CameraPlugin)
         .add_plugins(events::EventsPlugin)
         .add_plugins(LineRenderingPlugin)
-        .add_plugins(WorldInspectorPlugin::new())
+        //.add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
         .init_state::<ApplicationState>()
         .run();
