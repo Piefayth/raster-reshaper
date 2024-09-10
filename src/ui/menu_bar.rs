@@ -1,15 +1,27 @@
 use bevy::prelude::*;
-use bevy_mod_picking::{events::{Down, Out, Over, Pointer, Up}, focus::PickingInteraction, prelude::{On, Pickable}};
+use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
+use bevy_mod_picking::{
+    events::{Down, Out, Over, Pointer, Up},
+    focus::PickingInteraction,
+    prelude::{On, Pickable},
+};
+use serde::{Deserialize, Serialize};
 
 use crate::ApplicationState;
 
-use super::{context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext}, Spawner};
+use super::{
+    context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext},
+    Spawner,
+};
 
 pub struct MenuBarPlugin;
 
 impl Plugin for MenuBarPlugin {
     fn build(&self, app: &mut App) {
-        //app.add_systems(Update, menu_button_interaction.run_if(in_state(ApplicationState::MainLoop)));
+        app.add_plugins(FileDialogPlugin::new().with_save_file::<SaveFile>().with_load_file::<SaveFile>());
+        app.add_systems(Update, (file_save_complete, file_load_complete).run_if(in_state(ApplicationState::MainLoop)));
+        
+        app.observe(handle_save_request).observe(handle_load_request);
     }
 }
 
@@ -17,10 +29,7 @@ impl Plugin for MenuBarPlugin {
 pub struct MenuBar;
 
 impl MenuBar {
-    pub fn spawn(
-        spawner: &mut impl Spawner,
-        font: Handle<Font>,
-    ) -> Entity {
+    pub fn spawn(spawner: &mut impl Spawner, font: Handle<Font>) -> Entity {
         let mut ec = spawner.spawn_bundle((
             NodeBundle {
                 style: Style {
@@ -32,9 +41,9 @@ impl MenuBar {
                 ..default()
             },
             MenuBar,
-            Pickable::IGNORE
+            Pickable::IGNORE,
         ));
-       
+
         ec.with_children(|parent| {
             MenuButton::File.spawn(parent, "File", font.clone());
             MenuButton::Edit.spawn(parent, "Edit", font.clone());
@@ -45,6 +54,58 @@ impl MenuBar {
 
 #[derive(Clone, Event)]
 pub struct SaveEvent;
+
+#[derive(Clone, Event)]
+pub struct LoadEvent;
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct SaveFile {
+    version: u32,
+}
+
+pub fn handle_save_request(
+    trigger: Trigger<SaveEvent>,
+    mut commands: Commands,
+) {
+    let maybe_serialized = bincode::serialize(&SaveFile {
+        version: 2,
+    });
+
+    if let Ok(serialized) = maybe_serialized {
+        commands
+            .dialog()
+            .add_filter("Raster Reshaper Project", &["rrproj"])
+            .set_file_name("new_project")
+            .save_file::<SaveFile>(serialized);
+    }
+
+}
+
+fn file_save_complete(mut ev_saved: EventReader<DialogFileSaved<SaveFile>>) {
+    for ev in ev_saved.read() {
+        match ev.result {
+            Ok(_) => eprintln!("File {} successfully saved", ev.file_name),
+            Err(ref err) => eprintln!("Failed to save {}: {}", ev.file_name, err),
+        }
+    }
+}
+
+pub fn handle_load_request(
+    trigger: Trigger<LoadEvent>,
+    mut commands: Commands,
+) {
+    commands.dialog().load_file::<SaveFile>();
+}
+
+fn file_load_complete(mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>) {
+    for ev in ev_loaded.read() {
+        let maybe_deserialized = bincode::deserialize::<SaveFile>(ev.contents.as_slice());
+        match maybe_deserialized {
+            Ok(deserialized) => println!("file load {:?}", deserialized),
+            Err(err) => println!("file not load because {}", err),
+        }
+    }
+}
 
 #[derive(Clone, Event)]
 pub struct CopyEvent;
@@ -60,59 +121,59 @@ pub enum MenuButton {
 
 impl MenuButton {
     fn spawn(self, parent: &mut impl Spawner, text: &str, font: Handle<Font>) {
-        parent.spawn_bundle((
-            ButtonBundle {
-                style: Style {
-                    margin: UiRect::all(Val::Px(4.0)),
-                    padding: UiRect::all(Val::Px(4.0)),
+        parent
+            .spawn_bundle((
+                ButtonBundle {
+                    style: Style {
+                        margin: UiRect::all(Val::Px(4.0)),
+                        padding: UiRect::all(Val::Px(4.0)),
+                        ..default()
+                    },
                     ..default()
                 },
-                ..default()
-            },
-            self.clone(),   // a specific variant of MenuButton
-            On::<Pointer<Over>>::target_commands_mut(|over, commands| {
-                commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
-            }),
-            On::<Pointer<Out>>::target_commands_mut(|out, commands| {
-                commands.insert(BackgroundColor::from(MENU_BG_COLOR));
-            }),
-            On::<Pointer<Down>>::target_commands_mut(|down, commands| {
-                commands.insert(BackgroundColor::from(MENU_CLICK_COLOR));
-                let source = commands.id();
+                self.clone(), // a specific variant of MenuButton
+                On::<Pointer<Over>>::target_commands_mut(|over, commands| {
+                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
+                }),
+                On::<Pointer<Out>>::target_commands_mut(|out, commands| {
+                    commands.insert(BackgroundColor::from(MENU_BG_COLOR));
+                }),
+                On::<Pointer<Down>>::target_commands_mut(|down, commands| {
+                    commands.insert(BackgroundColor::from(MENU_CLICK_COLOR));
+                    let source = commands.id();
 
-                commands.commands().add_command(move |world: &mut World| {
-                    let m_node = world.entity(source).get::<Node>();
-                    if let Some(node) = m_node {
-                        world.trigger(RequestOpenContextMenu {
-                            source,
-                            position_source: ContextMenuPositionSource::Entity,
-                            position_offset: node.size() * Vec2::new(-0.5, 0.5),
-                        })
-                    }
-                });
-            }),
-            On::<Pointer<Up>>::target_commands_mut(|up, commands| {
-                commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
-            }),
-            UIContext::MenuBar(MenuBarContext {
-                button_kind: self.clone(),
-            })
-        ))
-        .insert(Name::new(format!("Menu Button {}", text)))
-        .with_children(|parent| {
-            parent.spawn(TextBundle::from_section(
-                text,
-                TextStyle {
-                    font,
-                    font_size: 16.0,
-                    color: Color::WHITE,
-                },
+                    commands.commands().add_command(move |world: &mut World| {
+                        let m_node = world.entity(source).get::<Node>();
+                        if let Some(node) = m_node {
+                            world.trigger(RequestOpenContextMenu {
+                                source,
+                                position_source: ContextMenuPositionSource::Entity,
+                                position_offset: node.size() * Vec2::new(-0.5, 0.5),
+                            })
+                        }
+                    });
+                }),
+                On::<Pointer<Up>>::target_commands_mut(|up, commands| {
+                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
+                }),
+                UIContext::MenuBar(MenuBarContext {
+                    button_kind: self.clone(),
+                }),
             ))
-            .insert(Style {
-                ..default()
-            })
-            .insert(Pickable::IGNORE);
-        });
+            .insert(Name::new(format!("Menu Button {}", text)))
+            .with_children(|parent| {
+                parent
+                    .spawn(TextBundle::from_section(
+                        text,
+                        TextStyle {
+                            font,
+                            font_size: 16.0,
+                            color: Color::WHITE,
+                        },
+                    ))
+                    .insert(Style { ..default() })
+                    .insert(Pickable::IGNORE);
+            });
     }
 }
 

@@ -25,7 +25,7 @@ use bevy_mod_picking::{
 };
 use petgraph::{visit::EdgeRef, Direction};
 
-use super::{menu_bar::{CopyEvent, MenuButton, PasteEvent, SaveEvent}, Spawner, UiRoot};
+use super::{menu_bar::{CopyEvent, LoadEvent, MenuButton, PasteEvent, SaveEvent}, Spawner, UiRoot};
 
 pub struct ContextMenuPlugin;
 
@@ -188,6 +188,13 @@ impl ContextMenu {
                                 "Save",
                                 font.clone(),
                                 SaveEvent
+                            );
+
+                            ContextMenuEntry::spawn(
+                                child_builder,
+                                "Load",
+                                font.clone(),
+                                LoadEvent
                             );
                         },
                         MenuButton::Edit => {
@@ -358,7 +365,6 @@ pub fn open_context_menu(
 
         let ui_root = q_ui_root.single();
 
-        println!("{:?}",position);
         commands.entity(ui_root).with_children(|child_builder| {
             ContextMenu::spawn(
                 child_builder,
@@ -370,7 +376,6 @@ pub fn open_context_menu(
     }
 }
 
-// Handles any non-right-click action that would close the context menu.
 pub fn cancel_context_menu(
     mut commands: Commands,
     mut click_down_events: EventReader<Pointer<Down>>,
