@@ -15,11 +15,7 @@ use bevy::{
     color::palettes::{
         css::WHITE,
         tailwind::{GRAY_600, GRAY_800},
-    },
-    ecs::system::EntityCommands,
-    prelude::*,
-    ui::Direction as UIDirection,
-    window::PrimaryWindow,
+    }, ecs::system::EntityCommands, math::VectorSpace, prelude::*, ui::Direction as UIDirection, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{Click, Down, Out, Over, Pointer, Up},
@@ -29,16 +25,17 @@ use bevy_mod_picking::{
 };
 use petgraph::{visit::EdgeRef, Direction};
 
-use super::{Spawner, UiRoot};
+use super::{menu_bar::{CopyEvent, MenuButton, PasteEvent, SaveEvent}, Spawner, UiRoot};
 
 pub struct ContextMenuPlugin;
 
 impl Plugin for ContextMenuPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(PreUpdate, cancel_context_menu.run_if(in_state(ApplicationState::MainLoop)));
         app.add_systems(
             Update,
             (
-                (cancel_context_menu, open_context_menu, highlight_selection),
+                (handle_uicontext_right_click, highlight_selection),
                 clamp_context_menu_to_window,
             )
                 .chain()
@@ -49,6 +46,7 @@ impl Plugin for ContextMenuPlugin {
         app.observe(detatch_input);
         app.observe(detatch_output);
         app.observe(handle_remove_node_request);
+        app.observe(open_context_menu);
     }
 }
 
@@ -61,7 +59,14 @@ pub enum UIContext {
     Node(Entity),
     InputPort(InputPortContext),
     OutputPort(OutputPortContext),
+    MenuBar(MenuBarContext),
 }
+
+#[derive(Debug)]
+pub struct MenuBarContext {
+    pub button_kind: MenuButton,
+}
+
 
 #[derive(Debug)]
 pub struct InputPortContext {
@@ -173,7 +178,37 @@ impl ContextMenu {
                         },
                     );
                 });
-            }
+            },
+            UIContext::MenuBar(file_menu_context) => {
+                ec.with_children(|child_builder| {
+                    match file_menu_context.button_kind {
+                        MenuButton::File => {
+                            ContextMenuEntry::spawn(
+                                child_builder,
+                                "Save",
+                                font.clone(),
+                                SaveEvent
+                            );
+                        },
+                        MenuButton::Edit => {
+                            ContextMenuEntry::spawn(
+                                child_builder,
+                                "Copy",
+                                font.clone(),
+                                CopyEvent
+                            );
+
+                            ContextMenuEntry::spawn(
+                                child_builder,
+                                "Paste",
+                                font.clone(),
+                                PasteEvent
+                            );
+                        },
+                    }
+
+                });
+            },
         }
 
         ec
@@ -236,15 +271,10 @@ impl ContextMenuEntry {
     }
 }
 
-// Opens the context menu on a right click.
-pub fn open_context_menu(
+pub fn handle_uicontext_right_click(
     mut commands: Commands,
     mut mouse_events: EventReader<Pointer<Down>>,
-    fonts: Res<FontAssets>,
     q_contextualized: Query<&UIContext>,
-    q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
-    q_ui_root: Query<Entity, With<UiRoot>>,
-    q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
     let right_click_event = mouse_events
         .read()
@@ -264,6 +294,42 @@ pub fn open_context_menu(
         None => return,
     };
 
+    commands.trigger(RequestOpenContextMenu {
+        source: right_click_event.target,
+        position_source: ContextMenuPositionSource::Cursor,
+        position_offset: Vec2::ZERO,
+    });
+}
+
+#[derive(Clone, Debug)]
+pub enum ContextMenuPositionSource {
+    Cursor,
+    Entity,
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct RequestOpenContextMenu {
+    pub source: Entity,
+    pub position_source: ContextMenuPositionSource,
+    pub position_offset: Vec2,
+}
+
+
+pub fn open_context_menu(
+    trigger: Trigger<RequestOpenContextMenu>,
+    mut commands: Commands,
+    fonts: Res<FontAssets>,
+    q_contextualized: Query<&UIContext>,
+    q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
+    q_ui_root: Query<Entity, With<UiRoot>>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    q_transform: Query<&GlobalTransform>,
+) {
+    let window = match q_window.get_single() {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+
     // Despawn the old context menu if it exists and is not being hovered
     if let Ok((old_context_menu_entity, interaction)) = q_context_menu.get_single() {
         if matches!(interaction, PickingInteraction::None) {
@@ -273,22 +339,30 @@ pub fn open_context_menu(
         }
     }
 
-    let cursor_position = if let Ok(window) = q_window.get_single() {
-        window.cursor_position()
-    } else {
-        return; // Can't spawn the menu without the cursor position
-    }
-    .unwrap();
-
     // Only spawn the context menu for entities that have a UIContext
-    if q_contextualized.contains(right_click_event.target) {
-        let ui_root = q_ui_root.single();
-        let ctx = q_contextualized.get(right_click_event.target).unwrap();
+    if let Ok(ctx) = q_contextualized.get(trigger.event().source) {
+        let cursor_position = window.cursor_position().unwrap_or(Vec2::ZERO);
+    
+    
+        let position = trigger.event().position_offset + match trigger.event().position_source {
+            ContextMenuPositionSource::Cursor => {
+                cursor_position
+            },
+            ContextMenuPositionSource::Entity => {
+                match q_transform.get(trigger.event().source) {
+                    Ok(transform) => transform.translation().truncate(),
+                    Err(_) => Vec2::ZERO,
+                }
+            },
+        };
 
+        let ui_root = q_ui_root.single();
+
+        println!("{:?}",position);
         commands.entity(ui_root).with_children(|child_builder| {
             ContextMenu::spawn(
                 child_builder,
-                cursor_position,
+                position,
                 ctx,
                 fonts.deja_vu_sans.clone(),
             );
@@ -300,8 +374,8 @@ pub fn open_context_menu(
 pub fn cancel_context_menu(
     mut commands: Commands,
     mut click_down_events: EventReader<Pointer<Down>>,
-    mut click_up_events: EventReader<Pointer<Up>>,
     q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
+    q_added_context_menu: Query<Entity, Added<ContextMenu>>,
 ) {
     if q_context_menu.is_empty() {
         return;
@@ -311,17 +385,8 @@ pub fn cancel_context_menu(
 
     for event in click_down_events.read() {
         if event.button == PointerButton::Primary {
-            if *context_menu_picking == PickingInteraction::None {
-                commands.entity(context_menu_entity).despawn_recursive();
-                break;
-            }
-        }
-    }
-
-    for event in click_up_events.read() {
-        if event.button == PointerButton::Primary {
-            // User left clicked inside the context menu, then released outside.
-            if *context_menu_picking == PickingInteraction::None {
+            let not_new_this_frame = !q_added_context_menu.contains(context_menu_entity);
+            if not_new_this_frame && *context_menu_picking == PickingInteraction::None {
                 commands.entity(context_menu_entity).despawn_recursive();
                 break;
             }

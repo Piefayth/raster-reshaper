@@ -1,6 +1,6 @@
 use bevy::{app::App, prelude::*, DefaultPlugins};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_mod_picking::DefaultPickingPlugins;
+use bevy_mod_picking::{debug::DebugPickingMode, DefaultPickingPlugins};
 use line_renderer::LineRenderingPlugin;
 
 mod asset;
@@ -25,6 +25,7 @@ fn main() {
         .add_plugins(LineRenderingPlugin)
         //.add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
+        //.insert_resource(DebugPickingMode::Normal)
         .init_state::<ApplicationState>()
         .run();
 }
