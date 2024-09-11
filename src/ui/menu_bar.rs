@@ -13,9 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{DisjointPipelineGraph, SerializableEdge},
     nodes::{
-        fields::{Field, FieldMeta},
-        kinds::{color::SerializableColorNode, example::SerializableExampleNode},
-        GraphNodeKind, InputId, NodeTrait, SerializableGraphNodeKind, SerializableInputId,
+        fields::{Field, FieldMeta}, kinds::{color::SerializableColorNode, example::SerializableExampleNode}, GraphNodeKind, InputId, NodeDisplay, NodeTrait, SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId
     },
     ApplicationState,
 };
@@ -82,7 +80,7 @@ pub struct LoadEvent;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct SaveFile {
     version: u32,
-    nodes: Vec<SerializableGraphNodeKind>,
+    nodes: Vec<SerializableGraphNode>,
     edges: Vec<SerializableEdge>,
 }
 
@@ -93,15 +91,25 @@ pub fn handle_save_request(
     trigger: Trigger<SaveEvent>,
     q_graph: Query<&DisjointPipelineGraph>,
     q_working_filename: Query<&WorkingFilename>,
+    q_node_display: Query<&Transform, With<NodeDisplay>>,
     mut commands: Commands,
 ) {
     let graph = &q_graph.single().graph;
 
-    let nodes: Vec<SerializableGraphNodeKind> = graph
+    let nodes: Vec<SerializableGraphNode> = graph
         .node_weights()
-        .map(|node| match &node.kind {
-            GraphNodeKind::Example(example_node) => SerializableGraphNodeKind::from(example_node),
-            GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
+        .map(|node| {
+            let kind = match &node.kind {
+                GraphNodeKind::Example(example_node) => SerializableGraphNodeKind::from(example_node),
+                GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
+            };
+
+            let position = q_node_display.get(node.kind.entity()).unwrap().translation;
+
+            SerializableGraphNode {
+                kind,
+                position,
+            }
         })
         .collect();
 

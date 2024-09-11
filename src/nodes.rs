@@ -113,6 +113,12 @@ pub enum SerializableGraphNodeKind {
     Color(SerializableColorNode),
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SerializableGraphNode {
+    pub position: Vec3,
+    pub kind: SerializableGraphNodeKind,
+}
+
 #[derive(Clone)]
 pub struct GraphNode {
     pub last_process_time: Duration,
