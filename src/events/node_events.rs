@@ -1,8 +1,32 @@
 use std::time::Duration;
 
-use bevy::{color::palettes::{css::{MAGENTA, ORANGE, WHITE}, tailwind::{BLUE_600, GRAY_200, GRAY_400}}, prelude::*, sprite::{Anchor, MaterialMesh2dBundle}};
+use crate::{
+    asset::{
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
+        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
+    },
+    graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline},
+    line_renderer::{generate_curved_line, Line},
+    nodes::{
+        kinds::{color::ColorNode, example::ExampleNode},
+        node_kind_name,
+        ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout},
+        shared::shader_source,
+        EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait,
+        RequestSpawnNodeKind, Selected,
+    },
+    setup::{CustomGpuDevice, CustomGpuQueue},
+    ui::context_menu::UIContext,
+};
+use bevy::{
+    color::palettes::{
+        css::{MAGENTA, ORANGE, WHITE},
+        tailwind::{BLUE_600, GRAY_200, GRAY_400},
+    },
+    prelude::*,
+    sprite::{Anchor, MaterialMesh2dBundle},
+};
 use wgpu::TextureFormat;
-use crate::{asset::{FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE}, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_curved_line, Line}, nodes::{kinds::{color::ColorNode, example::ExampleNode}, node_kind_name, ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext};
 
 use super::{edge_events::RemoveEdgeEvent, UndoableEvent};
 
@@ -21,10 +45,19 @@ pub fn remove_node(
     let mut pipeline = q_pipeline.single_mut();
     let (node_entity, node_display, node_transform) =
         q_nodes.get(trigger.event().node_entity).unwrap();
-    
-    let removed_edges: Vec<Edge> = pipeline.graph.edges(node_display.index).map(|edge| {
-        edge.weight().clone()
-    }).collect();
+
+    let removed_edges: Vec<Edge> = pipeline
+        .graph
+        .edges_directed(node_display.index, petgraph::Direction::Incoming)
+        .chain(
+            pipeline
+                .graph
+                .edges_directed(node_display.index, petgraph::Direction::Outgoing),
+        )
+        .map(|edge| {
+            edge.weight().clone()
+        })
+        .collect();
 
     if let Some(removed_node) = pipeline.graph.remove_node(node_display.index) {
         for removed_edge in removed_edges.iter() {
@@ -101,16 +134,16 @@ pub fn remove_node_from_undo(
     }
 }
 
-#[derive(Event, Clone, Debug)]
+#[derive(Event, Clone)]
 pub struct AddNodeEvent {
     pub position: Vec2,
-    pub kind: RequestSpawnNodeKind,
+    pub node: Option<GraphNode>,
+    pub spawn_kind: RequestSpawnNodeKind,
 }
 
 pub fn add_node(
     trigger: Trigger<AddNodeEvent>,
     mut commands: Commands,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     render_device: Res<CustomGpuDevice>,
     render_queue: Res<CustomGpuQueue>,
@@ -125,15 +158,8 @@ pub fn add_node(
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let (camera, camera_transform) = camera_query.single();
-    let world_position = match camera.viewport_to_world(camera_transform, trigger.event().position)
-    {
-        Some(p) => p,
-        None => return, // Just bail out of spawning if we don't have a valid world pos
-    }
-    .origin
-    .truncate()
-    .extend(node_count.0 as f32); // count-based z-index so that nodes always have unique z
+
+    let world_position = trigger.event().position.extend(node_count.0 as f32);
 
     node_count.0 += 1;
 
@@ -144,7 +170,7 @@ pub fn add_node(
         })
         .id();
 
-    let spawned_node_index = match trigger.event().kind {
+    let spawned_node_index = match &trigger.event().spawn_kind {
         RequestSpawnNodeKind::Example => {
             let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
             let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
@@ -169,6 +195,17 @@ pub fn add_node(
                 kind: GraphNodeKind::Color(color_node),
                 last_process_time: Duration::ZERO,
             })
+        }
+        RequestSpawnNodeKind::None => {
+            let mut node = trigger
+                .event()
+                .node
+                .as_ref()
+                .expect("Can't spawn a None node without providing a node to spawn")
+                .clone();
+
+            node.kind.set_entity(node_entity);
+            pipeline.graph.add_node(node)
         }
     };
 
@@ -231,7 +268,7 @@ pub fn add_node(
             let heading_text_margin_top = 5.;
 
             // heading text
-            let value = node_kind_name(&trigger.event().kind);
+            let value = node_kind_name(&node.kind);
             child_builder.spawn(Text2dBundle {
                 text: Text::from_section(
                     value,
@@ -296,8 +333,6 @@ pub fn add_node(
     ev_process_pipeline.send(RequestProcessPipeline);
 }
 
-
-
 #[derive(Event, Clone)]
 pub struct UndoableAddNodeEvent {
     pub node: GraphNode,
@@ -338,7 +373,6 @@ pub fn add_node_from_undo(
     commands.trigger(RequestInputPortRelayout { node_entity });
     ev_process_pipeline.send(RequestProcessPipeline);
 }
-
 
 #[derive(Event, Clone, Debug)]
 pub struct UndoableDragNodeEvent {

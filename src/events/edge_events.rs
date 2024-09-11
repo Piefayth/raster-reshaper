@@ -178,9 +178,9 @@ pub fn remove_edge(
         pipeline.graph.remove_edge(edge_index);
     }
 
-    let maybe_edge_line = q_edges.iter().find(|(_, edge)| {
-        edge.start_port == start_port_entity
-            && edge.end_port == end_port_entity
+    let maybe_edge_line = q_edges.iter().find(|(_, edge_line)| {
+        edge_line.start_port == start_port_entity
+            && edge_line.end_port == end_port_entity
     });
 
     if let Some((edge_entity, _)) = maybe_edge_line {

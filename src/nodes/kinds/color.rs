@@ -89,3 +89,26 @@ declare_node!(
         }
     }
 );
+
+declare_node!(
+    name: NoneNode,
+    fields: {
+        #[entity] entity: Entity,
+    },
+
+    methods: {
+        new(
+            entity: Entity,
+        ) -> Self {
+            Self {
+                entity,
+                input_meta: HashMap::new(),
+                output_meta: HashMap::new(),
+            }
+        }
+
+        process(&mut self) {
+
+        }
+    }
+);

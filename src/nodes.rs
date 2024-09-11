@@ -88,8 +88,12 @@ pub trait NodeTrait {
     fn set_output(&mut self, id: OutputId, value: Field) -> Result<(), String>;
     fn input_fields(&self) -> &[InputId];
     fn output_fields(&self) -> &[OutputId];
+
     async fn process(&mut self);
+    
     fn entity(&self) -> Entity;
+    fn set_entity(&mut self, new_entity: Entity);
+
 
     fn set_input_meta(&mut self, id: InputId, meta: FieldMeta);
     fn get_input_meta(&self, id: InputId) -> Option<&FieldMeta>;
@@ -105,6 +109,13 @@ declare_node_enum_and_impl_trait! {
         Example(ExampleNode),
         Color(ColorNode),
     }
+}
+
+#[derive(Event, Debug, Clone)]
+pub enum RequestSpawnNodeKind {
+    Example,
+    Color,
+    None,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -518,9 +529,9 @@ fn update_edge_lines(
     }
 }
 
-pub fn node_kind_name(kind: &RequestSpawnNodeKind) -> &'static str {
+pub fn node_kind_name(kind: &GraphNodeKind) -> &'static str {
     match kind {
-        RequestSpawnNodeKind::Example => "Example",
-        RequestSpawnNodeKind::Color => "Color",
+        GraphNodeKind::Example(_) => "Example",
+        GraphNodeKind::Color(_) => "Color",
     }
 }

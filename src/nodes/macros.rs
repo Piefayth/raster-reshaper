@@ -118,6 +118,10 @@ pub mod macros {
                 fn entity(&self) -> Entity {
                     self.$entity_field
                 }
+
+                fn set_entity(&mut self, new_entity: Entity) {
+                    self.$entity_field = new_entity;
+                }
     
                 fn set_input_meta(&mut self, id: $crate::nodes::InputId, meta: $crate::nodes::FieldMeta) {
                     self.input_meta.insert(id, meta);
@@ -189,11 +193,6 @@ pub mod macros {
                 $($variant($node_type)),*
             }
     
-            #[derive(Event, Debug, Clone)]
-            pub enum RequestSpawnNodeKind {
-                $($variant,)*
-            }
-    
             impl std::fmt::Display for $enum_name {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     match self {
@@ -250,6 +249,12 @@ pub mod macros {
                 fn entity(&self) -> Entity {
                     match self {
                         $($enum_name::$variant(n) => n.entity(),)*
+                    }
+                }
+
+                fn set_entity(&mut self, new_entity: Entity) {
+                    match self {
+                        $($enum_name::$variant(n) => n.set_entity(new_entity),)*
                     }
                 }
 

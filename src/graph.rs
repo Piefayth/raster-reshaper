@@ -55,7 +55,7 @@ pub struct ProcessNode {
     node: GraphNode,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Edge {
     pub from_node: Entity,
     pub from_field: OutputId,

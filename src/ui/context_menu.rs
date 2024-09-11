@@ -87,6 +87,7 @@ impl ContextMenu {
     fn spawn<'a>(
         spawner: &'a mut impl Spawner,
         cursor_pos: Vec2,
+        cursor_world_pos: Vec2,
         ctx: &UIContext,
         font: Handle<Font>,
     ) -> EntityCommands<'a> {
@@ -123,8 +124,9 @@ impl ContextMenu {
                         "Example",
                         font.clone(),
                         AddNodeEvent {
-                            position: cursor_pos,
-                            kind: RequestSpawnNodeKind::Example,
+                            position: cursor_world_pos,
+                            spawn_kind: RequestSpawnNodeKind::Example,
+                            node: None,
                         },
                     );
                     ContextMenuEntry::spawn(
@@ -132,8 +134,9 @@ impl ContextMenu {
                         "Color",
                         font.clone(),
                         AddNodeEvent {
-                            position: cursor_pos,
-                            kind: RequestSpawnNodeKind::Color,
+                            position: cursor_world_pos,
+                            spawn_kind: RequestSpawnNodeKind::Color,
+                            node: None,
                         },
                     );
                 });
@@ -326,6 +329,7 @@ pub fn open_context_menu(
     trigger: Trigger<RequestOpenContextMenu>,
     mut commands: Commands,
     fonts: Res<FontAssets>,
+    q_camera: Query<(&Camera, &GlobalTransform)>,
     q_contextualized: Query<&UIContext>,
     q_context_menu: Query<(Entity, &PickingInteraction), With<ContextMenu>>,
     q_ui_root: Query<Entity, With<UiRoot>>,
@@ -351,14 +355,26 @@ pub fn open_context_menu(
         let cursor_position = window.cursor_position().unwrap_or(Vec2::ZERO);
     
     
-        let position = trigger.event().position_offset + match trigger.event().position_source {
+        let (position, world_position) = match trigger.event().position_source {
             ContextMenuPositionSource::Cursor => {
-                cursor_position
+                let (camera, camera_transform) = q_camera.single();
+                let world_position = match camera.viewport_to_world(camera_transform, cursor_position)
+                {
+                    Some(p) => p,
+                    None => return,
+                }
+                .origin
+                .truncate();
+
+                (cursor_position, world_position)
             },
             ContextMenuPositionSource::Entity => {
                 match q_transform.get(trigger.event().source) {
-                    Ok(transform) => transform.translation().truncate(),
-                    Err(_) => Vec2::ZERO,
+                    Ok(transform) => {
+                        let out = trigger.event().position_offset + transform.translation().truncate();
+                        (out, out)
+                    },
+                    Err(_) => return,
                 }
             },
         };
@@ -369,6 +385,7 @@ pub fn open_context_menu(
             ContextMenu::spawn(
                 child_builder,
                 position,
+                world_position,
                 ctx,
                 fonts.deja_vu_sans.clone(),
             );
