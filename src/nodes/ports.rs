@@ -1,7 +1,7 @@
 use crate::{
     asset::{GeneratedMeshes, PortMaterial, NODE_TEXTURE_DISPLAY_DIMENSION, PORT_RADIUS},
     camera::MainCamera,
-    events::edge_events::{AddEdgeEvent, AddNodeEdgeEvent},
+    events::edge_events::{AddEdgeEvent, AddNodeEdge},
     graph::DisjointPipelineGraph,
     line_renderer::Line,
     ui::{
@@ -433,7 +433,7 @@ pub fn handle_port_selection(
                         let (_, _, start_port_data, _) = q_output_port.get(start_port).unwrap();
                         let (_, _, end_port_data, _) = q_input_port.get(snapped_port).unwrap();
 
-                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdgeEvent{
+                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
                             start_node: start_port_data.node_entity,
                             start_id: start_port_data.output_id,
                             end_node: end_port_data.node_entity,
@@ -446,7 +446,7 @@ pub fn handle_port_selection(
                         let (_, _, start_port_data, _) = q_output_port.get(snapped_port).unwrap();
                         let (_, _, end_port_data, _) = q_input_port.get(start_port).unwrap();
                         
-                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdgeEvent{
+                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
                             start_node: start_port_data.node_entity,
                             start_id: start_port_data.output_id,
                             end_node: end_port_data.node_entity,

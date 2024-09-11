@@ -17,20 +17,20 @@ use super::UndoableEvent;
 
 #[derive(Event, Clone, Debug)]
 pub enum AddEdgeEvent {
-    FromNodes(AddNodeEdgeEvent),
-    FromSerialized(AddSerializedEdgeEvent),
+    FromNodes(AddNodeEdge),
+    FromSerialized(AddSerializedEdge),
 }
 
-#[derive(Event, Clone, Debug)]
-pub struct AddNodeEdgeEvent {
+#[derive(Clone, Debug)]
+pub struct AddNodeEdge {
     pub start_node: Entity,
     pub start_id: OutputId,
     pub end_node: Entity,
     pub end_id: InputId,
 }
 
-#[derive(Event, Clone, Debug)]
-pub struct AddSerializedEdgeEvent {
+#[derive(Clone, Debug)]
+pub struct AddSerializedEdge {
     pub edge: SerializableEdge,
 }
 
@@ -67,7 +67,7 @@ pub fn add_edge(
 
             let edge = Edge::from_serializable(&ev.edge, &from_node.kind, &to_node.kind);
 
-            &AddNodeEdgeEvent {
+            &AddNodeEdge {
                 start_node: edge.from_node,
                 start_id: edge.from_field,
                 end_node: edge.to_node,
@@ -92,7 +92,7 @@ pub fn add_edge(
                 None
             }
         })
-        .expect("AddEdgeEvent was triggered with invalid options?");
+        .expect("AddEdgeEvent was triggered with invalid start port references?");
 
     let (end_port_entity, end_port_transform, end_port) = end_node_children
         .iter()
@@ -107,7 +107,7 @@ pub fn add_edge(
                 None
             }
         })
-        .expect("AddEdgeEvent was triggered with invalid options?");
+        .expect("AddEdgeEvent was triggered with invalid end port references?");
 
     let edge = Edge {
         from_field: start_port.output_id,

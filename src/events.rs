@@ -1,6 +1,6 @@
 use crate::{nodes::{fields::FieldMeta, NodeDisplay}, ApplicationState};
 use bevy::prelude::*;
-use edge_events::{AddEdgeEvent, AddNodeEdgeEvent, RemoveEdgeEvent, UndoableAddEdgeEvent, UndoableRemoveEdgeEvent};
+use edge_events::{AddEdgeEvent, AddNodeEdge, RemoveEdgeEvent, UndoableAddEdgeEvent, UndoableRemoveEdgeEvent};
 use field_events::{
     SetInputFieldEvent, SetOutputFieldEvent, UndoableSetInputFieldEvent, UndoableSetInputFieldMetaEvent, UndoableSetOutputFieldEvent, UndoableSetOutputFieldMetaEvent
 };
@@ -211,7 +211,7 @@ fn handle_undo(
                             }
                         }
                         UndoableEvent::RemoveEdge(e) => {
-                            commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdgeEvent {
+                            commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge {
                                 start_node: e.start_node,
                                 start_id: e.start_id,
                                 end_node: e.end_node,

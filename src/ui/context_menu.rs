@@ -2,7 +2,7 @@ use crate::{
     asset::FontAssets,
     events::{
         edge_events::RemoveEdgeEvent,
-        node_events::{AddNodeEvent, RemoveNodeEvent},
+        node_events::{AddNodeEvent, AddNodeKind, RemoveNodeEvent},
     },
     graph::DisjointPipelineGraph,
     nodes::{
@@ -123,23 +123,19 @@ impl ContextMenu {
                         child_builder,
                         "Example",
                         font.clone(),
-                        AddNodeEvent {
-                            node_entity: None,
+                        AddNodeEvent::FromKind(AddNodeKind {
                             position: cursor_world_pos,
                             spawn_kind: RequestSpawnNodeKind::Example,
-                            node: None,
-                        },
+                        }),
                     );
                     ContextMenuEntry::spawn(
                         child_builder,
                         "Color",
                         font.clone(),
-                        AddNodeEvent {
-                            node_entity: None,
+                        AddNodeEvent::FromKind(AddNodeKind {
                             position: cursor_world_pos,
                             spawn_kind: RequestSpawnNodeKind::Color,
-                            node: None,
-                        },
+                        }),
                     );
                 });
             }

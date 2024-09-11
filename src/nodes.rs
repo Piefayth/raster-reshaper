@@ -115,7 +115,6 @@ declare_node_enum_and_impl_trait! {
 pub enum RequestSpawnNodeKind {
     Example,
     Color,
-    FromSerialized,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

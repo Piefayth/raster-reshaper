@@ -132,11 +132,21 @@ pub fn remove_node_from_undo(
 }
 
 #[derive(Event, Clone)]
-pub struct AddNodeEvent {
-    pub node_entity: Option<Entity>,
+pub enum AddNodeEvent {
+    FromKind(AddNodeKind),
+    FromSerialized(AddSerializedNode),
+}
+
+#[derive(Clone)]
+pub struct AddNodeKind {
     pub position: Vec2,
-    pub node: Option<SerializableGraphNode>,
     pub spawn_kind: RequestSpawnNodeKind,
+}
+
+#[derive(Clone)]
+pub struct AddSerializedNode {
+    pub node_entity: Entity,
+    pub node: SerializableGraphNode
 }
 
 pub fn add_node(
@@ -157,7 +167,10 @@ pub fn add_node(
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
-    let world_position = trigger.event().position.extend(node_count.0 as f32);
+    let world_position = match trigger.event() {
+        AddNodeEvent::FromKind(ev) => ev.position,
+        AddNodeEvent::FromSerialized(ev) => ev.node.position.truncate(),
+    }.extend(node_count.0 as f32);
 
     node_count.0 += 1;
 
@@ -166,49 +179,48 @@ pub fn add_node(
         process_time_text: Entity::PLACEHOLDER,
     };
 
-    let node_entity = match trigger.event().node_entity {
-        Some(e) => {
-            commands.entity(e).insert(placeholder_node_display);
-            e
+    let node_entity = match trigger.event() {
+        AddNodeEvent::FromKind(_) => {
+            commands.spawn(placeholder_node_display).id()
         },
-        None => commands.spawn(placeholder_node_display).id(),
+        AddNodeEvent::FromSerialized(ev) => {
+            commands.entity(ev.node_entity).insert(placeholder_node_display);
+            ev.node_entity
+        },
     };
     
-    let spawned_node_index = match &trigger.event().spawn_kind {
-        RequestSpawnNodeKind::Example => {
-            let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
-            let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
-            let example_node = ExampleNode::new(
-                node_entity,
-                &render_device,
-                &render_queue,
-                &frag_shader,
-                &vert_shader,
-                512u32, // TODO: Is here where we want to choose and handle node defaults?
-                TextureFormat::Rgba8Unorm,
-            );
-
-            pipeline.graph.add_node(GraphNode {
-                kind: GraphNodeKind::Example(example_node),
-                last_process_time: Duration::ZERO,
-            })
-        }
-        RequestSpawnNodeKind::Color => {
-            let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-            pipeline.graph.add_node(GraphNode {
-                kind: GraphNodeKind::Color(color_node),
-                last_process_time: Duration::ZERO,
-            })
-        }
-        RequestSpawnNodeKind::FromSerialized => {
-            let snode = trigger
-                .event()
-                .node
-                .as_ref()
-                .expect("Can't spawn a None node without providing a node to spawn")
-                .clone();
-            
-            let spawned_node_index = match snode.kind {
+    let spawned_node_index = match trigger.event() {
+        AddNodeEvent::FromKind(ev) => {
+            match ev.spawn_kind {
+                RequestSpawnNodeKind::Example => {
+                    let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
+                    let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
+                    let example_node = ExampleNode::new(
+                        node_entity,
+                        &render_device,
+                        &render_queue,
+                        &frag_shader,
+                        &vert_shader,
+                        512u32, // TODO: Is here where we want to choose and handle node defaults?
+                        TextureFormat::Rgba8Unorm,
+                    );
+        
+                    pipeline.graph.add_node(GraphNode {
+                        kind: GraphNodeKind::Example(example_node),
+                        last_process_time: Duration::ZERO,
+                    })
+                }
+                RequestSpawnNodeKind::Color => {
+                    let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
+                    pipeline.graph.add_node(GraphNode {
+                        kind: GraphNodeKind::Color(color_node),
+                        last_process_time: Duration::ZERO,
+                    })
+                }
+            }
+        },
+        AddNodeEvent::FromSerialized(ev) => {
+            let spawned_node_index = match &ev.node.kind {
                 SerializableGraphNodeKind::Example(sex) => {
                     let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
                     let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
@@ -234,7 +246,7 @@ pub fn add_node(
             node.kind.set_entity(node_entity);
 
             spawned_node_index
-        }
+        },
     };
 
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();

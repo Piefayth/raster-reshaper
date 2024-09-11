@@ -29,7 +29,7 @@ impl From<&ColorNode> for SerializableGraphNodeKind {
 }
 
 impl ColorNode {
-    pub fn from_serializable(serialized: SerializableColorNode) -> Self {
+    pub fn from_serializable(serialized: &SerializableColorNode) -> Self {
         println!("got serialized {:?}", serialized);
         let mut node = Self::new(
             serialized.entity,  // TODO: fresh entity

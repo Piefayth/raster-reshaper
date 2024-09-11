@@ -12,7 +12,7 @@ use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    events::{edge_events::{AddEdgeEvent, AddSerializedEdgeEvent}, node_events::{AddNodeEvent, RemoveNodeEvent}}, graph::{DisjointPipelineGraph, Edge, SerializableEdge}, nodes::{
+    events::{edge_events::{AddEdgeEvent, AddSerializedEdge}, node_events::{AddNodeEvent, AddNodeKind, AddSerializedNode, RemoveNodeEvent}}, graph::{DisjointPipelineGraph, Edge, SerializableEdge}, nodes::{
         fields::{Field, FieldMeta}, kinds::{color::SerializableColorNode, example::SerializableExampleNode}, GraphNodeKind, InputId, NodeDisplay, NodeTrait, RequestSpawnNodeKind, SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId
     }, ApplicationState
 };
@@ -275,12 +275,10 @@ fn file_load_complete(
 
                     entity_map.insert(loaded_node.entity(), new_entity);
 
-                    commands.trigger(AddNodeEvent {
-                        node_entity: Some(new_entity),
-                        node: Some(loaded_node.clone()),
-                        position: loaded_node.position.truncate(),
-                        spawn_kind: RequestSpawnNodeKind::FromSerialized,
-                    })
+                    commands.trigger(AddNodeEvent::FromSerialized(AddSerializedNode {
+                        node_entity: new_entity,
+                        node: loaded_node.clone(),
+                    }));
                 }
                 
                 for sedge in &save_file.edges {
@@ -294,7 +292,7 @@ fn file_load_complete(
                             ..sedge.clone()
                         };
                         
-                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdgeEvent {
+                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                             edge: new_edge,
                         }));
                     }

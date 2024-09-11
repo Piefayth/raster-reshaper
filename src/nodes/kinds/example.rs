@@ -56,7 +56,7 @@ impl From<&ExampleNode> for SerializableGraphNodeKind {
 
 impl ExampleNode {
     pub fn from_serializable(
-        serialized: SerializableExampleNode,
+        serialized: &SerializableExampleNode,
         render_device: &CustomGpuDevice,
         render_queue: &CustomGpuQueue,
         fragment_source: &String,
