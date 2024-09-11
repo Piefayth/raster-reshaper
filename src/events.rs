@@ -1,6 +1,6 @@
 use crate::{nodes::{fields::FieldMeta, NodeDisplay}, ApplicationState};
 use bevy::prelude::*;
-use edge_events::{AddEdgeEvent, RemoveEdgeEvent, UndoableAddEdgeEvent, UndoableRemoveEdgeEvent};
+use edge_events::{AddEdgeEvent, AddNodeEdgeEvent, RemoveEdgeEvent, UndoableAddEdgeEvent, UndoableRemoveEdgeEvent};
 use field_events::{
     SetInputFieldEvent, SetOutputFieldEvent, UndoableSetInputFieldEvent, UndoableSetInputFieldMetaEvent, UndoableSetOutputFieldEvent, UndoableSetOutputFieldMetaEvent
 };
@@ -198,20 +198,25 @@ fn handle_undo(
                 for event in events.iter().rev() {
                     match event {
                         UndoableEvent::AddEdge(e) => {
-                            commands.trigger(RemoveEdgeEvent {
-                                start_node: e.start_node,
-                                start_id: e.start_id,
-                                end_node: e.end_node,
-                                end_id: e.end_id,
-                            });
+                            match e {
+                                AddEdgeEvent::FromNodes(e) => {
+                                    commands.trigger(RemoveEdgeEvent {
+                                        start_node: e.start_node,
+                                        start_id: e.start_id,
+                                        end_node: e.end_node,
+                                        end_id: e.end_id,
+                                    });
+                                },
+                                AddEdgeEvent::FromSerialized(_) => panic!("Found a from serialized add edge event in the undo stack?"),
+                            }
                         }
                         UndoableEvent::RemoveEdge(e) => {
-                            commands.trigger(AddEdgeEvent {
+                            commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdgeEvent {
                                 start_node: e.start_node,
                                 start_id: e.start_id,
                                 end_node: e.end_node,
                                 end_id: e.end_id,
-                            });
+                            }));
                         }
                         UndoableEvent::SetInputMeta(e) => {
                             commands.trigger(UndoableSetInputFieldMetaEvent {

@@ -7,11 +7,11 @@ use crate::nodes::{
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SerializableColorNode {
-    entity: Entity,
-    in_color: LinearRgba,
-    out_color: LinearRgba,
-    input_meta: HashMap<SerializableInputId, FieldMeta>,
-    output_meta: HashMap<SerializableOutputId, FieldMeta>,
+    pub  entity: Entity,
+    pub in_color: LinearRgba,
+    pub out_color: LinearRgba,
+    pub input_meta: HashMap<SerializableInputId, FieldMeta>,
+    pub output_meta: HashMap<SerializableOutputId, FieldMeta>,
 }
 
 impl From<&ColorNode> for SerializableGraphNodeKind {

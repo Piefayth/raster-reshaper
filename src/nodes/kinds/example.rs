@@ -33,12 +33,12 @@ use crate::{
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SerializableExampleNode {
-    entity: Entity,
-    texture_extents: Extent3d,
-    texture_format: TextureFormat,
-    triangle_color: LinearRgba,
-    input_meta: HashMap<SerializableInputId, FieldMeta>,
-    output_meta: HashMap<SerializableOutputId, FieldMeta>
+    pub entity: Entity,
+    pub texture_extents: Extent3d,
+    pub texture_format: TextureFormat,
+    pub triangle_color: LinearRgba,
+    pub input_meta: HashMap<SerializableInputId, FieldMeta>,
+    pub output_meta: HashMap<SerializableOutputId, FieldMeta>
 }
 
 impl From<&ExampleNode> for SerializableGraphNodeKind {

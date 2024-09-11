@@ -1,21 +1,20 @@
 use std::io::Cursor;
 
-use bevy::{prelude::*, utils::HashMap};
+use bevy::{prelude::*, utils::{hashbrown::HashMap}};
 use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
 use bevy_mod_picking::{
     events::{Down, Out, Over, Pointer, Up},
     focus::PickingInteraction,
     prelude::{On, Pickable},
 };
+use petgraph::visit::IntoNodeReferences;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    graph::{DisjointPipelineGraph, SerializableEdge},
-    nodes::{
-        fields::{Field, FieldMeta}, kinds::{color::SerializableColorNode, example::SerializableExampleNode}, GraphNodeKind, InputId, NodeDisplay, NodeTrait, SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId
-    },
-    ApplicationState,
+    events::{edge_events::{AddEdgeEvent, AddSerializedEdgeEvent}, node_events::{AddNodeEvent, RemoveNodeEvent}}, graph::{DisjointPipelineGraph, Edge, SerializableEdge}, nodes::{
+        fields::{Field, FieldMeta}, kinds::{color::SerializableColorNode, example::SerializableExampleNode}, GraphNodeKind, InputId, NodeDisplay, NodeTrait, RequestSpawnNodeKind, SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId
+    }, ApplicationState
 };
 
 use super::{
@@ -44,6 +43,10 @@ impl Plugin for MenuBarPlugin {
     }
 }
 
+const MENU_BG_COLOR: LinearRgba = LinearRgba::new(0.1, 0.1, 0.1, 0.1);
+const MENU_HOVER_COLOR: LinearRgba = LinearRgba::new(0.3, 0.3, 0.3, 0.3);
+const MENU_CLICK_COLOR: LinearRgba = LinearRgba::new(0.5, 0.5, 0.5, 0.5);
+
 #[derive(Component)]
 pub struct MenuBar;
 
@@ -71,11 +74,81 @@ impl MenuBar {
     }
 }
 
+#[derive(Component, Clone, Debug)]
+pub enum MenuButton {
+    File,
+    Edit,
+}
+
+impl MenuButton {
+    fn spawn(self, parent: &mut impl Spawner, text: &str, font: Handle<Font>) {
+        parent
+            .spawn_bundle((
+                ButtonBundle {
+                    style: Style {
+                        margin: UiRect::all(Val::Px(4.0)),
+                        padding: UiRect::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                self.clone(), // a specific variant of MenuButton
+                On::<Pointer<Over>>::target_commands_mut(|over, commands| {
+                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
+                }),
+                On::<Pointer<Out>>::target_commands_mut(|out, commands| {
+                    commands.insert(BackgroundColor::from(MENU_BG_COLOR));
+                }),
+                On::<Pointer<Down>>::target_commands_mut(|down, commands| {
+                    commands.insert(BackgroundColor::from(MENU_CLICK_COLOR));
+                    let source = commands.id();
+
+                    commands.commands().add_command(move |world: &mut World| {
+                        let m_node = world.entity(source).get::<Node>();
+                        if let Some(node) = m_node {
+                            world.trigger(RequestOpenContextMenu {
+                                source,
+                                position_source: ContextMenuPositionSource::Entity,
+                                position_offset: node.size() * Vec2::new(-0.5, 0.5),
+                            })
+                        }
+                    });
+                }),
+                On::<Pointer<Up>>::target_commands_mut(|up, commands| {
+                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
+                }),
+                UIContext::MenuBar(MenuBarContext {
+                    button_kind: self.clone(),
+                }),
+            ))
+            .insert(Name::new(format!("Menu Button {}", text)))
+            .with_children(|parent| {
+                parent
+                    .spawn(TextBundle::from_section(
+                        text,
+                        TextStyle {
+                            font,
+                            font_size: 16.0,
+                            color: Color::WHITE,
+                        },
+                    ))
+                    .insert(Style { ..default() })
+                    .insert(Pickable::IGNORE);
+            });
+    }
+}
+
 #[derive(Clone, Event)]
 pub struct SaveEvent;
 
 #[derive(Clone, Event)]
 pub struct LoadEvent;
+
+#[derive(Clone, Event)]
+pub struct CopyEvent;
+
+#[derive(Clone, Event)]
+pub struct PasteEvent;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct SaveFile {
@@ -176,88 +249,63 @@ pub fn handle_load_request(
     builder.load_file::<SaveFile>();
 }
 
-fn file_load_complete(mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>) {
+fn file_load_complete(
+    mut commands: Commands,
+    mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>,
+    mut q_pipeline: Query<(&mut DisjointPipelineGraph)>,
+) {
+    let graph = &q_pipeline.single_mut().graph;
+
     for ev in ev_loaded.read() {
         let maybe_deserialized = rmp_serde::from_slice::<SaveFile>(&ev.contents);
         match maybe_deserialized {
-            Ok(deserialized) => {
-                println!("file load {:?}", deserialized)
+            Ok(save_file) => {
+                println!("file load {:?}", save_file);
+
+                for (_, node) in graph.node_references() {
+                    commands.trigger(RemoveNodeEvent {
+                        node_entity: node.kind.entity(),
+                    });
+                }
+
+                // old -> new
+                let mut entity_map: HashMap<Entity, Entity> = HashMap::new();
+                for loaded_node in &save_file.nodes {
+                    let new_entity = commands.spawn_empty().id();
+
+                    entity_map.insert(loaded_node.entity(), new_entity);
+
+                    commands.trigger(AddNodeEvent {
+                        node_entity: Some(new_entity),
+                        node: Some(loaded_node.clone()),
+                        position: loaded_node.position.truncate(),
+                        spawn_kind: RequestSpawnNodeKind::FromSerialized,
+                    })
+                }
+                
+                for sedge in &save_file.edges {
+                    if let (Some(&new_start), Some(&new_end)) = (
+                        entity_map.get(&sedge.from_node),
+                        entity_map.get(&sedge.to_node),
+                    ) {
+                        let new_edge = SerializableEdge {
+                            from_node: new_start,
+                            to_node: new_end,
+                            ..sedge.clone()
+                        };
+                        
+                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdgeEvent {
+                            edge: new_edge,
+                        }));
+                    }
+                }
+
             },
             Err(err) => println!("file not loaded because {}", err),
         }
     }
 }
 
-#[derive(Clone, Event)]
-pub struct CopyEvent;
 
-#[derive(Clone, Event)]
-pub struct PasteEvent;
 
-#[derive(Component, Clone, Debug)]
-pub enum MenuButton {
-    File,
-    Edit,
-}
 
-impl MenuButton {
-    fn spawn(self, parent: &mut impl Spawner, text: &str, font: Handle<Font>) {
-        parent
-            .spawn_bundle((
-                ButtonBundle {
-                    style: Style {
-                        margin: UiRect::all(Val::Px(4.0)),
-                        padding: UiRect::all(Val::Px(4.0)),
-                        ..default()
-                    },
-                    ..default()
-                },
-                self.clone(), // a specific variant of MenuButton
-                On::<Pointer<Over>>::target_commands_mut(|over, commands| {
-                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
-                }),
-                On::<Pointer<Out>>::target_commands_mut(|out, commands| {
-                    commands.insert(BackgroundColor::from(MENU_BG_COLOR));
-                }),
-                On::<Pointer<Down>>::target_commands_mut(|down, commands| {
-                    commands.insert(BackgroundColor::from(MENU_CLICK_COLOR));
-                    let source = commands.id();
-
-                    commands.commands().add_command(move |world: &mut World| {
-                        let m_node = world.entity(source).get::<Node>();
-                        if let Some(node) = m_node {
-                            world.trigger(RequestOpenContextMenu {
-                                source,
-                                position_source: ContextMenuPositionSource::Entity,
-                                position_offset: node.size() * Vec2::new(-0.5, 0.5),
-                            })
-                        }
-                    });
-                }),
-                On::<Pointer<Up>>::target_commands_mut(|up, commands| {
-                    commands.insert(BackgroundColor::from(MENU_HOVER_COLOR));
-                }),
-                UIContext::MenuBar(MenuBarContext {
-                    button_kind: self.clone(),
-                }),
-            ))
-            .insert(Name::new(format!("Menu Button {}", text)))
-            .with_children(|parent| {
-                parent
-                    .spawn(TextBundle::from_section(
-                        text,
-                        TextStyle {
-                            font,
-                            font_size: 16.0,
-                            color: Color::WHITE,
-                        },
-                    ))
-                    .insert(Style { ..default() })
-                    .insert(Pickable::IGNORE);
-            });
-    }
-}
-
-const MENU_BG_COLOR: LinearRgba = LinearRgba::new(0.1, 0.1, 0.1, 0.1);
-const MENU_HOVER_COLOR: LinearRgba = LinearRgba::new(0.3, 0.3, 0.3, 0.3);
-const MENU_CLICK_COLOR: LinearRgba = LinearRgba::new(0.5, 0.5, 0.5, 0.5);

@@ -83,7 +83,7 @@ impl From<&Edge> for SerializableEdge {
 }
 
 impl Edge {
-    pub fn from_serializable(serialized: SerializableEdge, from_node: &impl NodeTrait, to_node: &impl NodeTrait) -> Self {
+    pub fn from_serializable(serialized: &SerializableEdge, from_node: &impl NodeTrait, to_node: &impl NodeTrait) -> Self {
         let from_field = from_node.output_fields()
             .iter()
             .find(|&&output_id| 

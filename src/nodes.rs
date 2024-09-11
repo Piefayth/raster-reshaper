@@ -115,7 +115,7 @@ declare_node_enum_and_impl_trait! {
 pub enum RequestSpawnNodeKind {
     Example,
     Color,
-    None,
+    FromSerialized,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -128,6 +128,15 @@ pub enum SerializableGraphNodeKind {
 pub struct SerializableGraphNode {
     pub position: Vec3,
     pub kind: SerializableGraphNodeKind,
+}
+
+impl SerializableGraphNode {
+    pub fn entity(&self) -> Entity {
+        match &self.kind {
+            SerializableGraphNodeKind::Example(n) => n.entity,
+            SerializableGraphNodeKind::Color(n) => n.entity,
+        }
+    }
 }
 
 #[derive(Clone)]

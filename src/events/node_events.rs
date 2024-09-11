@@ -6,14 +6,13 @@ use crate::{
         NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
     },
     graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline},
-    line_renderer::{generate_curved_line, Line},
     nodes::{
         kinds::{color::ColorNode, example::ExampleNode},
         node_kind_name,
         ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout},
         shared::shader_source,
         EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait,
-        RequestSpawnNodeKind, Selected,
+        RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind,
     },
     setup::{CustomGpuDevice, CustomGpuQueue},
     ui::context_menu::UIContext,
@@ -39,11 +38,11 @@ pub fn remove_node(
     trigger: Trigger<RemoveNodeEvent>,
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_nodes: Query<(Entity, &NodeDisplay, &Transform)>,
+    q_nodes: Query<(Entity, &NodeDisplay)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let (node_entity, node_display, node_transform) =
+    let (node_entity, node_display) =
         q_nodes.get(trigger.event().node_entity).unwrap();
 
     let removed_edges: Vec<Edge> = pipeline
@@ -77,7 +76,6 @@ pub fn remove_node(
             .insert(Visibility::Hidden);
 
         commands.trigger(UndoableEvent::from(UndoableRemoveNodeEvent {
-            position: node_transform.translation,
             node: removed_node,
             node_entity,
         }));
@@ -88,7 +86,6 @@ pub fn remove_node(
 
 #[derive(Event, Clone)]
 pub struct UndoableRemoveNodeEvent {
-    pub position: Vec3,
     pub node: GraphNode,
     pub node_entity: Entity,
 }
@@ -136,8 +133,9 @@ pub fn remove_node_from_undo(
 
 #[derive(Event, Clone)]
 pub struct AddNodeEvent {
+    pub node_entity: Option<Entity>,
     pub position: Vec2,
-    pub node: Option<GraphNode>,
+    pub node: Option<SerializableGraphNode>,
     pub spawn_kind: RequestSpawnNodeKind,
 }
 
@@ -163,13 +161,19 @@ pub fn add_node(
 
     node_count.0 += 1;
 
-    let node_entity = commands
-        .spawn(NodeDisplay {
-            index: 0.into(),
-            process_time_text: Entity::PLACEHOLDER,
-        })
-        .id();
+    let placeholder_node_display = NodeDisplay {
+        index: 0.into(),
+        process_time_text: Entity::PLACEHOLDER,
+    };
 
+    let node_entity = match trigger.event().node_entity {
+        Some(e) => {
+            commands.entity(e).insert(placeholder_node_display);
+            e
+        },
+        None => commands.spawn(placeholder_node_display).id(),
+    };
+    
     let spawned_node_index = match &trigger.event().spawn_kind {
         RequestSpawnNodeKind::Example => {
             let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
@@ -196,16 +200,40 @@ pub fn add_node(
                 last_process_time: Duration::ZERO,
             })
         }
-        RequestSpawnNodeKind::None => {
-            let mut node = trigger
+        RequestSpawnNodeKind::FromSerialized => {
+            let snode = trigger
                 .event()
                 .node
                 .as_ref()
                 .expect("Can't spawn a None node without providing a node to spawn")
                 .clone();
+            
+            let spawned_node_index = match snode.kind {
+                SerializableGraphNodeKind::Example(sex) => {
+                    let frag_shader = shader_source(&shaders, &shader_handles.default_frag);
+                    let vert_shader = shader_source(&shaders, &shader_handles.default_vert);
+                    pipeline.graph.add_node(GraphNode {
+                        last_process_time: Duration::ZERO,
+                        kind: GraphNodeKind::Example(
+                            ExampleNode::from_serializable(sex, &render_device, &render_queue, &frag_shader, &vert_shader)
+                        )
+                    })
+                },
+                SerializableGraphNodeKind::Color(sc) => {
+                    pipeline.graph.add_node(GraphNode {
+                        last_process_time: Duration::ZERO,
+                        kind: GraphNodeKind::Color(
+                            ColorNode::from_serializable(sc)
+                        )
+                    })
+                },
+            };
 
+
+            let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
             node.kind.set_entity(node_entity);
-            pipeline.graph.add_node(node)
+
+            spawned_node_index
         }
     };
 

@@ -2,22 +2,38 @@ use bevy::prelude::*;
 use bevy_mod_picking::prelude::Pickable;
 
 use crate::{
-    graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
+    graph::{
+        AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline, SerializableEdge,
+    },
     line_renderer::{generate_color_gradient, generate_curved_line, Line},
     nodes::{
-        fields::FieldMeta, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId
+        fields::FieldMeta,
+        ports::{port_color, InputPort, OutputPort},
+        EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId,
     },
 };
 
 use super::UndoableEvent;
 
 #[derive(Event, Clone, Debug)]
-pub struct AddEdgeEvent {
+pub enum AddEdgeEvent {
+    FromNodes(AddNodeEdgeEvent),
+    FromSerialized(AddSerializedEdgeEvent),
+}
+
+#[derive(Event, Clone, Debug)]
+pub struct AddNodeEdgeEvent {
     pub start_node: Entity,
     pub start_id: OutputId,
     pub end_node: Entity,
     pub end_id: InputId,
 }
+
+#[derive(Event, Clone, Debug)]
+pub struct AddSerializedEdgeEvent {
+    pub edge: SerializableEdge,
+}
+
 pub type UndoableAddEdgeEvent = AddEdgeEvent;
 
 pub fn add_edge(
@@ -30,33 +46,68 @@ pub fn add_edge(
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-    let (start_node, start_node_children) = q_nodes.get(trigger.event().start_node).unwrap();
-    let (end_node, end_node_children) = q_nodes.get(trigger.event().end_node).unwrap();
-    
-    let (start_port_entity, start_port_transfom, start_port) = start_node_children.iter().find_map(|child_entity| {
-        if let Ok(output) = q_output_ports.get(*child_entity) {
-            if output.2.output_id == trigger.event().start_id {
-                Some(output)
+
+    let event = match trigger.event() {
+        AddEdgeEvent::FromNodes(ev) => ev,
+        AddEdgeEvent::FromSerialized(ev) => {
+            let (from_node_display, _) = q_nodes
+                .get(ev.edge.from_node)
+                .expect("Forgot to assign Edge's from_node to an Entity from this world.");
+            let (to_node_display, _) = q_nodes
+                .get(ev.edge.to_node)
+                .expect("Forgot to assign Edge's from_node to an Entity from this world.");
+            let from_node = pipeline
+                .graph
+                .node_weight(from_node_display.index)
+                .expect("Forgot to add the serialized nodes to the graph?");
+            let to_node = pipeline
+                .graph
+                .node_weight(to_node_display.index)
+                .expect("Forgot to add the serialized nodes to the graph?");
+
+            let edge = Edge::from_serializable(&ev.edge, &from_node.kind, &to_node.kind);
+
+            &AddNodeEdgeEvent {
+                start_node: edge.from_node,
+                start_id: edge.from_field,
+                end_node: edge.to_node,
+                end_id: edge.to_field,
+            }
+        }
+    };
+
+    let (start_node, start_node_children) = q_nodes.get(event.start_node).unwrap();
+    let (end_node, end_node_children) = q_nodes.get(event.end_node).unwrap();
+
+    let (start_port_entity, start_port_transfom, start_port) = start_node_children
+        .iter()
+        .find_map(|child_entity| {
+            if let Ok(output) = q_output_ports.get(*child_entity) {
+                if output.2.output_id == event.start_id {
+                    Some(output)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }).expect("AddEdgeEvent was triggered with invalid options?");
+        })
+        .expect("AddEdgeEvent was triggered with invalid options?");
 
-    let (end_port_entity, end_port_transform, end_port) = end_node_children.iter().find_map(|child_entity| {
-        if let Ok(input) = q_input_ports.get(*child_entity) {
-            if input.2.input_id == trigger.event().end_id {
-                Some(input)
+    let (end_port_entity, end_port_transform, end_port) = end_node_children
+        .iter()
+        .find_map(|child_entity| {
+            if let Ok(input) = q_input_ports.get(*child_entity) {
+                if input.2.input_id == event.end_id {
+                    Some(input)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }).expect("AddEdgeEvent was triggered with invalid options?");
-
+        })
+        .expect("AddEdgeEvent was triggered with invalid options?");
 
     let edge = Edge {
         from_field: start_port.output_id,
@@ -95,8 +146,7 @@ pub fn add_edge(
                 port_color(&start_node.kind.get_output(start_port.output_id).unwrap());
             let end_color = port_color(&end_node.kind.get_input(end_port.input_id).unwrap());
 
-            let curve_colors =
-                generate_color_gradient(start_color, end_color, curve_points.len());
+            let curve_colors = generate_color_gradient(start_color, end_color, curve_points.len());
 
             commands.spawn((
                 Line {
@@ -112,7 +162,9 @@ pub fn add_edge(
                 Pickable::IGNORE,
             ));
 
-            commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
+            commands.trigger(UndoableEvent::AddEdge(AddEdgeEvent::FromNodes(
+                event.clone(),
+            )));
             ev_process_pipeline.send(RequestProcessPipeline);
         }
         Err(e) => {
@@ -144,43 +196,44 @@ pub fn remove_edge(
     let (start_node, start_node_children) = q_nodes.get(trigger.event().start_node).unwrap();
     let (end_node, end_node_children) = q_nodes.get(trigger.event().end_node).unwrap();
 
-    let (start_port_entity, _) = start_node_children.iter().find_map(|child_entity| {
-        if let Ok(output) = q_output_ports.get(*child_entity) {
-            if output.1.output_id == trigger.event().start_id {
-                Some(output)
+    let (start_port_entity, _) = start_node_children
+        .iter()
+        .find_map(|child_entity| {
+            if let Ok(output) = q_output_ports.get(*child_entity) {
+                if output.1.output_id == trigger.event().start_id {
+                    Some(output)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }).expect("RemoveEdgeEvent was triggered with invalid options?");
+        })
+        .expect("RemoveEdgeEvent was triggered with invalid options?");
 
-    let (end_port_entity, end_port) = end_node_children.iter().find_map(|child_entity| {
-        if let Ok(input) = q_input_ports.get(*child_entity) {
-            if input.1.input_id == trigger.event().end_id {
-                Some(input)
+    let (end_port_entity, end_port) = end_node_children
+        .iter()
+        .find_map(|child_entity| {
+            if let Ok(input) = q_input_ports.get(*child_entity) {
+                if input.1.input_id == trigger.event().end_id {
+                    Some(input)
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }).expect("RemoveEdgeEvent was triggered with invalid options?");
-
+        })
+        .expect("RemoveEdgeEvent was triggered with invalid options?");
 
     // Find the edge in the graph; if the edge removal was triggered by a node removal,
     // the edge might be gone from here already (as a side effect of the node removal)
-    if let Some(edge_index) = pipeline
-        .graph
-        .find_edge(start_node.index, end_node.index)
-    {
+    if let Some(edge_index) = pipeline.graph.find_edge(start_node.index, end_node.index) {
         pipeline.graph.remove_edge(edge_index);
     }
 
     let maybe_edge_line = q_edges.iter().find(|(_, edge_line)| {
-        edge_line.start_port == start_port_entity
-            && edge_line.end_port == end_port_entity
+        edge_line.start_port == start_port_entity && edge_line.end_port == end_port_entity
     });
 
     if let Some((edge_entity, _)) = maybe_edge_line {

@@ -124,6 +124,7 @@ impl ContextMenu {
                         "Example",
                         font.clone(),
                         AddNodeEvent {
+                            node_entity: None,
                             position: cursor_world_pos,
                             spawn_kind: RequestSpawnNodeKind::Example,
                             node: None,
@@ -134,6 +135,7 @@ impl ContextMenu {
                         "Color",
                         font.clone(),
                         AddNodeEvent {
+                            node_entity: None,
                             position: cursor_world_pos,
                             spawn_kind: RequestSpawnNodeKind::Color,
                             node: None,
