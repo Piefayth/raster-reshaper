@@ -40,7 +40,9 @@ pub fn add_edge(
 
         let edge = Edge {
             from_field: start_port.output_id,
+            from_node: start_port.node_entity,
             to_field: end_port.input_id,
+            to_node: end_port.node_entity,
         };
 
         match pipeline

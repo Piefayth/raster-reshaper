@@ -1,13 +1,24 @@
-use bevy::prelude::*;
+use std::io::Cursor;
+
+use bevy::{prelude::*, utils::HashMap};
 use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
 use bevy_mod_picking::{
     events::{Down, Out, Over, Pointer, Up},
     focus::PickingInteraction,
     prelude::{On, Pickable},
 };
+use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
-use crate::{graph::DisjointPipelineGraph, ApplicationState};
+use crate::{
+    graph::{DisjointPipelineGraph, SerializableEdge},
+    nodes::{
+        fields::{Field, FieldMeta},
+        kinds::{color::SerializableColorNode, example::SerializableExampleNode},
+        GraphNodeKind, InputId, NodeTrait, SerializableGraphNodeKind, SerializableInputId,
+    },
+    ApplicationState,
+};
 
 use super::{
     context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext},
@@ -18,10 +29,18 @@ pub struct MenuBarPlugin;
 
 impl Plugin for MenuBarPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(FileDialogPlugin::new().with_save_file::<SaveFile>().with_load_file::<SaveFile>());
-        app.add_systems(Update, (file_save_complete, file_load_complete).run_if(in_state(ApplicationState::MainLoop)));
-        
-        app.observe(handle_save_request).observe(handle_load_request);
+        app.add_plugins(
+            FileDialogPlugin::new()
+                .with_save_file::<SaveFile>()
+                .with_load_file::<SaveFile>(),
+        );
+        app.add_systems(
+            Update,
+            (file_save_complete, file_load_complete).run_if(in_state(ApplicationState::MainLoop)),
+        );
+
+        app.observe(handle_save_request)
+            .observe(handle_load_request);
 
         app.world_mut().spawn(WorkingFilename(None));
     }
@@ -63,6 +82,8 @@ pub struct LoadEvent;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct SaveFile {
     version: u32,
+    nodes: Vec<SerializableGraphNodeKind>,
+    edges: Vec<SerializableEdge>,
 }
 
 #[derive(Component, Clone, Deref, DerefMut)]
@@ -74,24 +95,45 @@ pub fn handle_save_request(
     q_working_filename: Query<&WorkingFilename>,
     mut commands: Commands,
 ) {
-    let maybe_serialized = bincode::serialize(&SaveFile {
-        version: 2,
-    });
+    println!("HELLO");
+    let graph = &q_graph.single().graph;
 
+    let nodes: Vec<SerializableGraphNodeKind> = graph
+        .node_weights()
+        .map(|node| match &node.kind {
+            GraphNodeKind::Example(example_node) => SerializableGraphNodeKind::from(example_node),
+            GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
+        })
+        .collect();
+
+    let edges: Vec<SerializableEdge> = graph
+        .edge_weights()
+        .map(|edge| SerializableEdge::from(edge))
+        .collect();
+
+    let save_file = &SaveFile {
+        version: 2,
+        nodes,
+        edges,
+    };
+
+    let maybe_serialized = rmp_serde::to_vec(save_file);
     let working_file_name: &Option<String> = &q_working_filename.single().0;
     let file_name = match working_file_name {
         Some(name) => name,
         None => &String::from("new_project"),
     };
 
-    if let Ok(serialized) = maybe_serialized {
-        commands
-            .dialog()
-            .add_filter("Raster Reshaper Project", &["rrproj"])
-            .set_file_name(file_name)
-            .save_file::<SaveFile>(serialized);
+    match maybe_serialized {
+        Ok(serialized) => {
+            commands
+                .dialog()
+                .add_filter("Raster Reshaper Project", &["rrproj"])
+                .set_file_name(file_name)
+                .save_file::<SaveFile>(serialized);
+        }
+        Err(e) => println!("{:?}", e),
     }
-
 }
 
 fn file_save_complete(
@@ -105,7 +147,7 @@ fn file_save_complete(
                 if let Ok(mut working_filename) = q_working_filename.get_single_mut() {
                     working_filename.0 = Some(ev.file_name.clone());
                 }
-            },
+            }
             Err(ref err) => eprintln!("Failed to save {}: {}", ev.file_name, err),
         }
     }
@@ -129,7 +171,8 @@ pub fn handle_load_request(
 
 fn file_load_complete(mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>) {
     for ev in ev_loaded.read() {
-        let maybe_deserialized = bincode::deserialize::<SaveFile>(ev.contents.as_slice());
+        println!("GOT LOAD");
+        let maybe_deserialized = rmp_serde::from_slice::<SaveFile>(&ev.contents);
         match maybe_deserialized {
             Ok(deserialized) => println!("file load {:?}", deserialized),
             Err(err) => println!("file not load because {}", err),

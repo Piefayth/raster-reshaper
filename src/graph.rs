@@ -1,7 +1,7 @@
-use std::time::Instant;
+use std::{borrow::Cow, time::Instant};
 
 use crate::{
-    nodes::{fields::can_convert_field, GraphNode, InputId, NodeTrait, OutputId},
+    nodes::{fields::can_convert_field, GraphNode, InputId, NodeTrait, OutputId, SerializableInputId, SerializableOutputId},
     ApplicationState,
 };
 use bevy::{
@@ -14,6 +14,7 @@ use futures::future::{select_all, BoxFuture};
 use petgraph::{
     graph::NodeIndex, matrix_graph::Zero, prelude::StableDiGraph, visit::EdgeRef, Direction,
 };
+use serde::{Deserialize, Serialize};
 
 pub struct GraphPlugin;
 
@@ -56,9 +57,56 @@ pub struct ProcessNode {
 
 #[derive(Clone)]
 pub struct Edge {
+    pub from_node: Entity,
     pub from_field: OutputId,
+    pub to_node: Entity,
     pub to_field: InputId,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SerializableEdge {
+    pub from_node: Entity,
+    pub from_field: SerializableOutputId,
+    pub to_node: Entity,
+    pub to_field: SerializableInputId,
+}
+
+impl From<&Edge> for SerializableEdge {
+    fn from(edge: &Edge) -> Self {
+        SerializableEdge {
+            from_node: edge.from_node,
+            from_field: SerializableOutputId(edge.from_field.0.to_string(), edge.from_field.1.to_string()),
+            to_node: edge.to_node,
+            to_field: SerializableInputId(edge.to_field.0.to_string(), edge.to_field.1.to_string()),
+        }
+    }
+}
+
+impl Edge {
+    pub fn from_serializable(serialized: SerializableEdge, from_node: &impl NodeTrait, to_node: &impl NodeTrait) -> Self {
+        let from_field = from_node.output_fields()
+            .iter()
+            .find(|&&output_id| 
+                SerializableOutputId(output_id.0.to_string(), output_id.1.to_string()) == serialized.from_field
+            )
+            .expect("Serialized from_field not found in from_node");
+
+        let to_field = to_node.input_fields()
+            .iter()
+            .find(|&&input_id| 
+                SerializableInputId(input_id.0.to_string(), input_id.1.to_string()) == serialized.to_field
+            )
+            .expect("Serialized to_field not found in to_node");
+
+        Edge {
+            from_node: serialized.from_node,
+            from_field: *from_field,
+            to_node: serialized.to_node,
+            to_field: *to_field,
+        }
+    }
+}
+
 
 // Check if graph processing is complete.
 fn poll_processed_pipeline(
@@ -163,6 +211,7 @@ fn process_pipeline(
                         let edge_data = edge.weight();
 
                         // Update the dependant node
+                        
                         let _ = node_with_resolved_dependencies.node.kind.set_input(
                             edge_data.to_field,
                             from.node.kind.get_output(edge_data.from_field).unwrap(),

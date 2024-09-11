@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     nodes::{
-        fields::{Field, FieldMeta}, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, InputId, NodeTrait, OutputId, SerializableInputId, SerializableOutputId
+        fields::{Field, FieldMeta}, macros::macros::declare_node, shared::{Vertex, U32_SIZE}, InputId, NodeTrait, OutputId, SerializableGraphNodeKind, SerializableInputId, SerializableOutputId
     },
     setup::{CustomGpuDevice, CustomGpuQueue},
 };
@@ -41,16 +41,16 @@ pub struct SerializableExampleNode {
     output_meta: HashMap<SerializableOutputId, FieldMeta>
 }
 
-impl From<&ExampleNode> for SerializableExampleNode {
+impl From<&ExampleNode> for SerializableGraphNodeKind {
     fn from(node: &ExampleNode) -> Self {
-        SerializableExampleNode {
+        SerializableGraphNodeKind::Example(SerializableExampleNode {
             entity: node.entity,
             texture_extents: node.texture_extents,
             texture_format: node.texture_format,
             triangle_color: node.triangle_color,
             input_meta: node.input_meta.iter().map(|(k, v)| (SerializableInputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
             output_meta: node.output_meta.iter().map(|(k, v)| (SerializableOutputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
-        }
+        })
     }
 }
 

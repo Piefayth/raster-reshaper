@@ -2,7 +2,7 @@ use bevy::{color::palettes::css::MAGENTA, prelude::*, utils::HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::nodes::{
-    fields::{Field, FieldMeta}, macros::macros::declare_node, InputId, NodeTrait, OutputId, SerializableInputId, SerializableOutputId
+    fields::{Field, FieldMeta}, macros::macros::declare_node, InputId, NodeTrait, OutputId, SerializableGraphNodeKind, SerializableInputId, SerializableOutputId
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -14,20 +14,23 @@ pub struct SerializableColorNode {
     output_meta: HashMap<SerializableOutputId, FieldMeta>,
 }
 
-impl From<&ColorNode> for SerializableColorNode {
+impl From<&ColorNode> for SerializableGraphNodeKind {
     fn from(node: &ColorNode) -> Self {
-        SerializableColorNode {
+        let it = SerializableGraphNodeKind::Color(SerializableColorNode {
             entity: node.entity,
             in_color: node.in_color,
             out_color: node.out_color,
             input_meta: node.input_meta.iter().map(|(k, v)| (SerializableInputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
             output_meta: node.output_meta.iter().map(|(k, v)| (SerializableOutputId(k.0.to_string(), k.1.to_string()), v.clone())).collect(),
-        }
+        });
+
+        it
     }
 }
 
 impl ColorNode {
     pub fn from_serializable(serialized: SerializableColorNode) -> Self {
+        println!("got serialized {:?}", serialized);
         let mut node = Self::new(
             serialized.entity,  // TODO: fresh entity
             serialized.in_color,

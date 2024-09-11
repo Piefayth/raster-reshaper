@@ -28,7 +28,7 @@ use bevy_mod_picking::{
     prelude::PointerButton,
 };
 use fields::{Field, FieldMeta};
-use kinds::color::ColorNode;
+use kinds::{color::{ColorNode, SerializableColorNode}, example::SerializableExampleNode};
 use kinds::example::ExampleNode;
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::{graph::NodeIndex, visit::IntoNodeReferences};
@@ -105,6 +105,12 @@ declare_node_enum_and_impl_trait! {
         Example(ExampleNode),
         Color(ColorNode),
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum SerializableGraphNodeKind {
+    Example(SerializableExampleNode),
+    Color(SerializableColorNode),
 }
 
 #[derive(Clone)]
