@@ -272,8 +272,8 @@ pub fn handle_port_selection(
     mut commands: Commands,
     mut line_query: Query<(Entity, &mut Line)>,
     q_nodes: Query<&NodeDisplay>,
-    input_port_query: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
-    output_port_query: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
+    q_input_port: Query<(Entity, &GlobalTransform, &InputPort, &PickingInteraction)>,
+    q_output_port: Query<(Entity, &GlobalTransform, &OutputPort, &PickingInteraction)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut selecting_port: ResMut<SelectingPort>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -293,8 +293,8 @@ pub fn handle_port_selection(
         }
 
         let port_entity = event.target;
-        let maybe_input_port = input_port_query.get(port_entity);
-        let maybe_output_port = output_port_query.get(port_entity);
+        let maybe_input_port = q_input_port.get(port_entity);
+        let maybe_output_port = q_output_port.get(port_entity);
 
         let (port_position, direction, field) =
             if let Ok((_, transform, input, _)) = maybe_input_port {
@@ -362,7 +362,7 @@ pub fn handle_port_selection(
                     let mut closest_position = cursor_world_position;
 
                     // Check for snapping to input ports
-                    for (port_entity, transform, _, _) in input_port_query.iter() {
+                    for (port_entity, transform, _, _) in q_input_port.iter() {
                         let port_position = transform.translation().truncate();
                         let distance = port_position.distance(cursor_world_position);
                         if distance < snap_threshold && distance < closest_distance {
@@ -373,7 +373,7 @@ pub fn handle_port_selection(
                     }
 
                     // Check for snapping to output ports
-                    for (port_entity, transform, _, _) in output_port_query.iter() {
+                    for (port_entity, transform, _, _) in q_output_port.iter() {
                         let port_position = transform.translation().truncate();
                         let distance = port_position.distance(cursor_world_position);
                         if distance < snap_threshold && distance < closest_distance {
@@ -430,17 +430,27 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(snapped_port) = maybe_snapped_port {
+                        let (_, _, start_port_data, _) = q_output_port.get(start_port).unwrap();
+                        let (_, _, end_port_data, _) = q_input_port.get(snapped_port).unwrap();
+
                         commands.trigger(AddEdgeEvent {
-                            start_port,
-                            end_port: snapped_port,
+                            start_node: start_port_data.node_entity,
+                            start_id: start_port_data.output_id,
+                            end_node: end_port_data.node_entity,
+                            end_id: end_port_data.input_id,
                         });
                     }
                 }
                 Direction::Outgoing => {
                     if let Some(snapped_port) = maybe_snapped_port {
+                        let (_, _, start_port_data, _) = q_output_port.get(snapped_port).unwrap();
+                        let (_, _, end_port_data, _) = q_input_port.get(start_port).unwrap();
+                        
                         commands.trigger(AddEdgeEvent {
-                            start_port: snapped_port,
-                            end_port: start_port,
+                            start_node: start_port_data.node_entity,
+                            start_id: start_port_data.output_id,
+                            end_node: end_port_data.node_entity,
+                            end_id: end_port_data.input_id,
                         });
                     }
                 }

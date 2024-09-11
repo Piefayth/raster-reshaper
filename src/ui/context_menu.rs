@@ -514,15 +514,12 @@ fn detatch_input(
             .edges_directed(target_node_index, Direction::Incoming)
             .find(|edge| edge.weight().to_field == target_port)
         {
-            if let Some((output_port_entity, _)) = q_output_ports.iter().find(|(_, port)| {
-                let output_node_index = q_nodes.get(port.node_entity).unwrap().index;
-                output_node_index == edge.source() && port.output_id == edge.weight().from_field
-            }) {
-                commands.trigger(RemoveEdgeEvent {
-                    start_port: output_port_entity,
-                    end_port: target_port_entity,
-                });
-            }
+            commands.trigger(RemoveEdgeEvent {
+                start_node: edge.weight().from_node,
+                start_id: edge.weight().from_field,
+                end_node: edge.weight().to_node,
+                end_id: edge.weight().to_field,
+            });
         }
     }
 }
@@ -556,15 +553,12 @@ fn detatch_output(
             .edges_directed(target_node_index, Direction::Outgoing)
         {
             if edge.weight().from_field == target_port {
-                if let Some((input_entity, _)) = q_input_ports.iter().find(|(_, in_port)| {
-                    let input_node_index = q_nodes.get(in_port.node_entity).unwrap().index;
-                    input_node_index == edge.target() && in_port.input_id == edge.weight().to_field
-                }) {
-                    commands.trigger(RemoveEdgeEvent {
-                        start_port: target_port_entity,
-                        end_port: input_entity,
-                    });
-                }
+                commands.trigger(RemoveEdgeEvent {
+                    start_node: edge.weight().from_node,
+                    start_id: edge.weight().from_field,
+                    end_node: edge.weight().to_node,
+                    end_id: edge.weight().to_field,
+                });
             }
         }
     }

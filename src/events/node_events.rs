@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{color::palettes::{css::{MAGENTA, ORANGE, WHITE}, tailwind::{BLUE_600, GRAY_200, GRAY_400}}, prelude::*, sprite::{Anchor, MaterialMesh2dBundle}};
 use wgpu::TextureFormat;
-use crate::{asset::{FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE}, graph::{DisjointPipelineGraph, RequestProcessPipeline}, line_renderer::{generate_curved_line, Line}, nodes::{kinds::{color::ColorNode, example::ExampleNode}, node_kind_name, ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext};
+use crate::{asset::{FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE}, graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline}, line_renderer::{generate_curved_line, Line}, nodes::{kinds::{color::ColorNode, example::ExampleNode}, node_kind_name, ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected}, setup::{CustomGpuDevice, CustomGpuQueue}, ui::context_menu::UIContext};
 
 use super::{edge_events::RemoveEdgeEvent, UndoableEvent};
 
@@ -16,34 +16,24 @@ pub fn remove_node(
     mut commands: Commands,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_nodes: Query<(Entity, &NodeDisplay, &Transform)>,
-    q_edge_lines: Query<&EdgeLine>,
-    q_input_ports: Query<(Entity, &InputPort)>,
-    q_output_ports: Query<(Entity, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
     let (node_entity, node_display, node_transform) =
         q_nodes.get(trigger.event().node_entity).unwrap();
+    
+    let removed_edges: Vec<Edge> = pipeline.graph.edges(node_display.index).map(|edge| {
+        edge.weight().clone()
+    }).collect();
 
     if let Some(removed_node) = pipeline.graph.remove_node(node_display.index) {
-        let node_ports: Vec<Entity> =
-            q_input_ports
-                .iter()
-                .filter_map(|(entity, port)| (port.node_entity == node_entity).then_some(entity))
-                .chain(q_output_ports.iter().filter_map(|(entity, port)| {
-                    (port.node_entity == node_entity).then_some(entity)
-                }))
-                .collect();
-
-        for edge_line in q_edge_lines.iter() {
-            if node_ports.contains(&edge_line.start_port)
-                || node_ports.contains(&edge_line.end_port)
-            {
-                commands.trigger(RemoveEdgeEvent {
-                    start_port: edge_line.start_port,
-                    end_port: edge_line.end_port,
-                });
-            }
+        for removed_edge in removed_edges.iter() {
+            commands.trigger(RemoveEdgeEvent {
+                start_node: removed_edge.from_node,
+                start_id: removed_edge.from_field,
+                end_node: removed_edge.to_node,
+                end_id: removed_edge.to_field,
+            });
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
@@ -344,8 +334,6 @@ pub fn add_node_from_undo(
         .insert(UIContext::Node(node_entity))
         .insert(Visibility::Visible);
 
-    // TODO - Does it make sense to process the whole graph here, long term?
-    // Eventually a newly-added node could have an edge at addition time, so maybe...
     commands.trigger(RequestOutputPortRelayout { node_entity });
     commands.trigger(RequestInputPortRelayout { node_entity });
     ev_process_pipeline.send(RequestProcessPipeline);

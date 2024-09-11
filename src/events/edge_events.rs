@@ -5,9 +5,7 @@ use crate::{
     graph::{AddEdgeChecked, DisjointPipelineGraph, Edge, RequestProcessPipeline},
     line_renderer::{generate_color_gradient, generate_curved_line, Line},
     nodes::{
-        fields::FieldMeta,
-        ports::{port_color, InputPort, OutputPort},
-        EdgeLine, NodeDisplay, NodeTrait,
+        fields::FieldMeta, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId
     },
 };
 
@@ -15,158 +13,196 @@ use super::UndoableEvent;
 
 #[derive(Event, Clone, Debug)]
 pub struct AddEdgeEvent {
-    pub start_port: Entity,
-    pub end_port: Entity,
+    pub start_node: Entity,
+    pub start_id: OutputId,
+    pub end_node: Entity,
+    pub end_id: InputId,
 }
 pub type UndoableAddEdgeEvent = AddEdgeEvent;
 
 pub fn add_edge(
     trigger: Trigger<AddEdgeEvent>,
     mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
+    q_nodes: Query<(&NodeDisplay, &Children)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_input_ports: Query<(&GlobalTransform, &InputPort)>,
-    q_output_ports: Query<(&GlobalTransform, &OutputPort)>,
+    q_input_ports: Query<(Entity, &GlobalTransform, &InputPort)>,
+    q_output_ports: Query<(Entity, &GlobalTransform, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
-
-    if let (Ok((start_transform, start_port)), Ok((end_transform, end_port))) = (
-        q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port),
-    ) {
-        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
-        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
-
-        let edge = Edge {
-            from_field: start_port.output_id,
-            from_node: start_port.node_entity,
-            to_field: end_port.input_id,
-            to_node: end_port.node_entity,
-        };
-
-        match pipeline
-            .graph
-            .add_edge_checked(start_port_node_index, end_port_node_index, edge)
-        {
-            Ok(()) => {
-                let start = start_transform.translation().truncate();
-                let end = end_transform.translation().truncate();
-                let curve_points = generate_curved_line(start, end, 50);
-
-                // cloning so we can borrow mutably from the graph....can that be improved?
-                let start_node = pipeline
-                    .graph
-                    .node_weight(start_port_node_index)
-                    .unwrap()
-                    .clone();
-                let end_node = pipeline.graph.node_weight_mut(end_port_node_index).unwrap();
-
-                let old_input_field_meta = end_node.kind.get_input_meta(end_port.input_id).unwrap();
-                end_node.kind.set_input_meta(
-                    end_port.input_id,
-                    FieldMeta {
-                        visible: old_input_field_meta.visible,
-                        storage: end_node.kind.get_input(end_port.input_id).unwrap(),
-                    },
-                );
-
-                let start_color =
-                    port_color(&start_node.kind.get_output(start_port.output_id).unwrap());
-                let end_color = port_color(&end_node.kind.get_input(end_port.input_id).unwrap());
-
-                let curve_colors =
-                    generate_color_gradient(start_color, end_color, curve_points.len());
-
-                commands.spawn((
-                    Line {
-                        points: curve_points,
-                        colors: curve_colors,
-                        thickness: 2.0,
-                    },
-                    EdgeLine {
-                        start_port: trigger.event().start_port,
-                        end_port: trigger.event().end_port,
-                    },
-                    Transform::from_xyz(0., 0., -999.),
-                    Pickable::IGNORE,
-                ));
-
-                commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
-                ev_process_pipeline.send(RequestProcessPipeline);
+    let (start_node, start_node_children) = q_nodes.get(trigger.event().start_node).unwrap();
+    let (end_node, end_node_children) = q_nodes.get(trigger.event().end_node).unwrap();
+    
+    let (start_port_entity, start_port_transfom, start_port) = start_node_children.iter().find_map(|child_entity| {
+        if let Ok(output) = q_output_ports.get(*child_entity) {
+            if output.2.output_id == trigger.event().start_id {
+                Some(output)
+            } else {
+                None
             }
-            Err(e) => {
-                println!("Error adding edge: {}", e);
-            }
+        } else {
+            None
         }
-    } else {
-        println!("Error: Could not find one or both of the ports");
+    }).expect("AddEdgeEvent was triggered with invalid options?");
+
+    let (end_port_entity, end_port_transform, end_port) = end_node_children.iter().find_map(|child_entity| {
+        if let Ok(input) = q_input_ports.get(*child_entity) {
+            if input.2.input_id == trigger.event().end_id {
+                Some(input)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).expect("AddEdgeEvent was triggered with invalid options?");
+
+
+    let edge = Edge {
+        from_field: start_port.output_id,
+        from_node: start_port.node_entity,
+        to_field: end_port.input_id,
+        to_node: end_port.node_entity,
+    };
+
+    match pipeline
+        .graph
+        .add_edge_checked(start_node.index, end_node.index, edge)
+    {
+        Ok(()) => {
+            let start = start_port_transfom.translation().truncate();
+            let end = end_port_transform.translation().truncate();
+            let curve_points = generate_curved_line(start, end, 50);
+
+            // cloning so we can borrow mutably from the graph....can that be improved?
+            let start_node = pipeline
+                .graph
+                .node_weight(start_node.index)
+                .unwrap()
+                .clone();
+            let end_node = pipeline.graph.node_weight_mut(end_node.index).unwrap();
+
+            let old_input_field_meta = end_node.kind.get_input_meta(end_port.input_id).unwrap();
+            end_node.kind.set_input_meta(
+                end_port.input_id,
+                FieldMeta {
+                    visible: old_input_field_meta.visible,
+                    storage: end_node.kind.get_input(end_port.input_id).unwrap(),
+                },
+            );
+
+            let start_color =
+                port_color(&start_node.kind.get_output(start_port.output_id).unwrap());
+            let end_color = port_color(&end_node.kind.get_input(end_port.input_id).unwrap());
+
+            let curve_colors =
+                generate_color_gradient(start_color, end_color, curve_points.len());
+
+            commands.spawn((
+                Line {
+                    points: curve_points,
+                    colors: curve_colors,
+                    thickness: 2.0,
+                },
+                EdgeLine {
+                    start_port: start_port_entity,
+                    end_port: end_port_entity,
+                },
+                Transform::from_xyz(0., 0., -999.),
+                Pickable::IGNORE,
+            ));
+
+            commands.trigger(UndoableEvent::AddEdge(trigger.event().clone()));
+            ev_process_pipeline.send(RequestProcessPipeline);
+        }
+        Err(e) => {
+            println!("Error adding edge: {}", e);
+        }
     }
 }
 
 #[derive(Event, Clone, Debug)]
 pub struct RemoveEdgeEvent {
-    pub start_port: Entity,
-    pub end_port: Entity,
+    pub start_node: Entity,
+    pub start_id: OutputId,
+    pub end_node: Entity,
+    pub end_id: InputId,
 }
 pub type UndoableRemoveEdgeEvent = RemoveEdgeEvent;
 
 pub fn remove_edge(
     trigger: Trigger<RemoveEdgeEvent>,
     mut commands: Commands,
-    q_nodes: Query<&NodeDisplay>,
+    q_nodes: Query<(&NodeDisplay, &Children)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
-    q_input_ports: Query<&InputPort>,
-    q_output_ports: Query<&OutputPort>,
+    q_input_ports: Query<(Entity, &InputPort)>,
+    q_output_ports: Query<(Entity, &OutputPort)>,
     q_edges: Query<(Entity, &EdgeLine)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
+    let (start_node, start_node_children) = q_nodes.get(trigger.event().start_node).unwrap();
+    let (end_node, end_node_children) = q_nodes.get(trigger.event().end_node).unwrap();
 
-    if let (Ok(start_port), Ok(end_port)) = (
-        q_output_ports.get(trigger.event().start_port),
-        q_input_ports.get(trigger.event().end_port),
-    ) {
-        let start_port_node_index = q_nodes.get(start_port.node_entity).unwrap().index;
-        let end_port_node_index = q_nodes.get(end_port.node_entity).unwrap().index;
-
-        // Find the edge in the graph; if the edge removal was triggered by a node removal,
-        // the edge might be gone from here already (as a side effect of the node removal)
-        if let Some(edge_index) = pipeline
-            .graph
-            .find_edge(start_port_node_index, end_port_node_index)
-        {
-            pipeline.graph.remove_edge(edge_index);
-        }
-
-        let maybe_edge_line = q_edges.iter().find(|(_, edge)| {
-            edge.start_port == trigger.event().start_port
-                && edge.end_port == trigger.event().end_port
-        });
-
-        if let Some((edge_entity, _)) = maybe_edge_line {
-            // Set the removed input value back to its stored value
-            // the end node could've, validly, been deleted already, and we can ignore restoring its field
-            if let Some(end_node) = pipeline.graph.node_weight_mut(end_port_node_index) {
-                end_node
-                    .kind
-                    .set_input(
-                        end_port.input_id,
-                        end_node
-                            .kind
-                            .get_input_meta(end_port.input_id)
-                            .unwrap()
-                            .storage
-                            .clone(),
-                    )
-                    .unwrap();
+    let (start_port_entity, _) = start_node_children.iter().find_map(|child_entity| {
+        if let Ok(output) = q_output_ports.get(*child_entity) {
+            if output.1.output_id == trigger.event().start_id {
+                Some(output)
+            } else {
+                None
             }
-
-            commands.entity(edge_entity).despawn_recursive();
-            commands.trigger(UndoableEvent::RemoveEdge(trigger.event().clone()));
-            ev_process_pipeline.send(RequestProcessPipeline);
+        } else {
+            None
         }
-    } else {
-        println!("Error: Could not find one or both of the ports");
+    }).expect("RemoveEdgeEvent was triggered with invalid options?");
+
+    let (end_port_entity, end_port) = end_node_children.iter().find_map(|child_entity| {
+        if let Ok(input) = q_input_ports.get(*child_entity) {
+            if input.1.input_id == trigger.event().end_id {
+                Some(input)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).expect("RemoveEdgeEvent was triggered with invalid options?");
+
+
+    // Find the edge in the graph; if the edge removal was triggered by a node removal,
+    // the edge might be gone from here already (as a side effect of the node removal)
+    if let Some(edge_index) = pipeline
+        .graph
+        .find_edge(start_node.index, end_node.index)
+    {
+        pipeline.graph.remove_edge(edge_index);
+    }
+
+    let maybe_edge_line = q_edges.iter().find(|(_, edge)| {
+        edge.start_port == start_port_entity
+            && edge.end_port == end_port_entity
+    });
+
+    if let Some((edge_entity, _)) = maybe_edge_line {
+        // Set the removed input value back to its stored value
+        // the end node could've, validly, been deleted already, and we can ignore restoring its field
+        if let Some(end_node) = pipeline.graph.node_weight_mut(end_node.index) {
+            end_node
+                .kind
+                .set_input(
+                    end_port.input_id,
+                    end_node
+                        .kind
+                        .get_input_meta(end_port.input_id)
+                        .unwrap()
+                        .storage
+                        .clone(),
+                )
+                .unwrap();
+        }
+
+        commands.entity(edge_entity).despawn_recursive();
+        commands.trigger(UndoableEvent::RemoveEdge(trigger.event().clone()));
+        ev_process_pipeline.send(RequestProcessPipeline);
     }
 }

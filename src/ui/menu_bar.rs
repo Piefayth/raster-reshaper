@@ -95,7 +95,6 @@ pub fn handle_save_request(
     q_working_filename: Query<&WorkingFilename>,
     mut commands: Commands,
 ) {
-    println!("HELLO");
     let graph = &q_graph.single().graph;
 
     let nodes: Vec<SerializableGraphNodeKind> = graph
@@ -171,11 +170,12 @@ pub fn handle_load_request(
 
 fn file_load_complete(mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>) {
     for ev in ev_loaded.read() {
-        println!("GOT LOAD");
         let maybe_deserialized = rmp_serde::from_slice::<SaveFile>(&ev.contents);
         match maybe_deserialized {
-            Ok(deserialized) => println!("file load {:?}", deserialized),
-            Err(err) => println!("file not load because {}", err),
+            Ok(deserialized) => {
+                println!("file load {:?}", deserialized)
+            },
+            Err(err) => println!("file not loaded because {}", err),
         }
     }
 }

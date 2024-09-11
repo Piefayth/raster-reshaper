@@ -121,7 +121,6 @@ pub fn on_click_input_visibility_switch(
     q_switches: Query<(&mut InputPortVisibilitySwitch, &mut BackgroundColor)>,
     mut q_pipeline: Query<&mut DisjointPipelineGraph>,
     q_input_ports: Query<&InputPort>,
-    q_output_ports: Query<(Entity, &OutputPort)>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
@@ -146,19 +145,12 @@ pub fn on_click_input_visibility_switch(
                                 .edges_directed(port_node_index, Direction::Incoming)
                             {
                                 if edge.weight().to_field == port.input_id {
-                                    if let Some((output_entity, _)) =
-                                        q_output_ports.iter().find(|(_, out_port)| {
-                                            let out_port_node_index =
-                                                q_nodes.get(out_port.node_entity).unwrap().index;
-                                            out_port_node_index == edge.source()
-                                                && out_port.output_id == edge.weight().from_field
-                                        })
-                                    {
-                                        commands.trigger(RemoveEdgeEvent {
-                                            start_port: output_entity,
-                                            end_port: switch.input_port,
-                                        });
-                                    }
+                                    commands.trigger(RemoveEdgeEvent {
+                                        start_node: edge.weight().from_node,
+                                        start_id: edge.weight().from_field,
+                                        end_node: edge.weight().to_node,
+                                        end_id: edge.weight().to_field,
+                                    });
                                 }
                             }
                         }
@@ -176,7 +168,6 @@ pub fn on_click_output_visibility_switch(
     q_switches: Query<(&mut OutputPortVisibilitySwitch, &mut BackgroundColor)>,
     q_pipeline: Query<&DisjointPipelineGraph>,
     q_output_ports: Query<&OutputPort>,
-    q_input_ports: Query<(Entity, &InputPort)>,
 ) {
     for event in down_events.read() {
         if event.button == PointerButton::Primary {
@@ -201,19 +192,12 @@ pub fn on_click_output_visibility_switch(
                                 .edges_directed(port_node_index, Direction::Outgoing)
                             {
                                 if edge.weight().from_field == port.output_id {
-                                    if let Some((input_entity, _)) =
-                                        q_input_ports.iter().find(|(_, in_port)| {
-                                            let in_port_node_index =
-                                                q_nodes.get(in_port.node_entity).unwrap().index;
-                                            in_port_node_index == edge.target()
-                                                && in_port.input_id == edge.weight().to_field
-                                        })
-                                    {
-                                        commands.trigger(RemoveEdgeEvent {
-                                            start_port: switch.output_port,
-                                            end_port: input_entity,
-                                        });
-                                    }
+                                    commands.trigger(RemoveEdgeEvent {
+                                        start_node: edge.weight().from_node,
+                                        start_id: edge.weight().from_field,
+                                        end_node: edge.weight().to_node,
+                                        end_id: edge.weight().to_field,
+                                    });
                                 }
                             }
                         }

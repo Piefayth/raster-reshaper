@@ -12,7 +12,8 @@ pub enum Field {
     LinearRgba(LinearRgba),
     Extent3d(Extent3d),
     TextureFormat(TextureFormat),
-     // we do not need to store image field values
+
+     // we never serialize images since they can't be manually input, always from an edge
     Image(#[serde(serialize_with = "serialize_none_image", deserialize_with = "deserialize_none_image")]Option<Image>),
 }
 
