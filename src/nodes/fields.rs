@@ -2,7 +2,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureFormat},
 };
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Field {
@@ -12,15 +12,23 @@ pub enum Field {
     LinearRgba(LinearRgba),
     Extent3d(Extent3d),
     TextureFormat(TextureFormat),
-    #[serde(skip_serializing, deserialize_with = "deserialize_none_image")] // we do not need to store image field values
-    Image(Option<Image>),
+     // we do not need to store image field values
+    Image(#[serde(serialize_with = "serialize_none_image", deserialize_with = "deserialize_none_image")]Option<Image>),
 }
 
-fn deserialize_none_image<'de, D>(_: D) -> Result<Option<Image>, D::Error>
+fn serialize_none_image<S>(_: &Option<Image>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer
+{
+    serializer.serialize_none()
+}
+
+fn deserialize_none_image<'de, D>(deserializer: D) -> Result<Option<Image>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Ok(None)
+    let opt: Option<()> = Option::deserialize(deserializer)?;
+    Ok(opt.and_then(|_| None))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
