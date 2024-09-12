@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use crate::{
     asset::{
-        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets,
-        NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE,
+        FontAssets, GeneratedMeshes, NodeDisplayMaterial, PortMaterial, ShaderAssets, NODE_CONTENT_PADDING, NODE_TEXTURE_DISPLAY_DIMENSION, NODE_TITLE_BAR_SIZE, NODE_WIDTH
     },
     graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline},
     nodes::{
@@ -19,8 +18,8 @@ use crate::{
 };
 use bevy::{
     color::palettes::{
-        css::{MAGENTA, ORANGE, WHITE},
-        tailwind::{BLUE_600, GRAY_200, GRAY_400},
+        css::{MAGENTA, ORANGE, RED, WHITE},
+        tailwind::{BLUE_600, GRAY_200, GRAY_400, GRAY_600, GRAY_800, SLATE_700, SLATE_800, SLATE_900},
     },
     prelude::*,
     sprite::{Anchor, MaterialMesh2dBundle},
@@ -288,17 +287,20 @@ pub fn add_node(
             transform: Transform::from_translation(world_position),
             mesh: meshes.node_display_quad.clone(),
             material: node_display_materials.add(NodeDisplayMaterial {
-                title_bar_color: BLUE_600.into(),
+                title_bar_color: SLATE_800.into(),
                 node_texture: images.add(Image::transparent()),
                 title_bar_height: NODE_TITLE_BAR_SIZE,
-                node_height: NODE_TEXTURE_DISPLAY_DIMENSION,
-                background_color: match &node.kind {
+                node_dimensions: Vec2::new(NODE_WIDTH, NODE_TITLE_BAR_SIZE + NODE_TEXTURE_DISPLAY_DIMENSION + NODE_CONTENT_PADDING),
+                background_color: SLATE_700.into(),
+                texture_background_color: match &node.kind {
                     GraphNodeKind::Color(cn) => cn.out_color,
-                    _ => GRAY_200.into(),
+                    _ => GRAY_600.into(),
                 },
-                border_width: 2.,
-                border_color: GRAY_400.into(),
-                default_border_color: GRAY_400.into(),
+                border_width: 1.,
+                content_padding: 16.,
+                texture_dimensions: Vec2::splat(NODE_TEXTURE_DISPLAY_DIMENSION),
+                border_color: LinearRgba {red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0},
+                default_border_color: LinearRgba {red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0},
                 hover_border_color: GRAY_200.into(),
                 selected_border_color: ORANGE.into(),
             }),
@@ -308,7 +310,7 @@ pub fn add_node(
         .insert(UIContext::Node(node_entity))
         .with_children(|child_builder| {
             let heading_text_margin_left = 10.;
-            let heading_text_margin_top = 5.;
+            let heading_text_margin_top = 4.;
 
             // heading text
             let value = node_kind_name(&node.kind);
@@ -317,7 +319,7 @@ pub fn add_node(
                     value,
                     TextStyle {
                         font: fonts.deja_vu_sans.clone(),
-                        font_size: 18.,
+                        font_size: 14.,
                         color: WHITE.into(),
                     },
                 ),

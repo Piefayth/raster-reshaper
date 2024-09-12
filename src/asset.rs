@@ -37,8 +37,12 @@ fn done_processsing_assets(mut next_state: ResMut<NextState<ApplicationState>>) 
     next_state.set(ApplicationState::Setup);
 }
 
+
 pub const NODE_TITLE_BAR_SIZE: f32 = 22.;
 pub const NODE_TEXTURE_DISPLAY_DIMENSION: f32 = 128.;
+pub const NODE_CONTENT_PADDING: f32 = 6.;
+pub const NODE_WIDTH: f32 = NODE_TEXTURE_DISPLAY_DIMENSION + NODE_CONTENT_PADDING;
+
 pub const PORT_RADIUS: f32 = 10.;
 
 fn generate_meshes(
@@ -97,13 +101,19 @@ pub struct NodeDisplayMaterial {
     #[uniform(3)]
     pub title_bar_height: f32,
     #[uniform(4)]
-    pub node_height: f32,
+    pub node_dimensions: Vec2,
     #[uniform(5)]
     pub background_color: LinearRgba,
     #[uniform(6)]
     pub border_width: f32,
     #[uniform(7)]
     pub border_color: LinearRgba,
+    #[uniform(8)]
+    pub content_padding: f32,
+    #[uniform(9)]
+    pub texture_dimensions: Vec2,
+    #[uniform(10)]
+    pub texture_background_color: LinearRgba,
 
     pub default_border_color: LinearRgba,
     pub hover_border_color: LinearRgba,

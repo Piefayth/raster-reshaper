@@ -180,7 +180,7 @@ fn update_nodes(
                         }
                     }
                     GraphNodeKind::Color(color_node) => {
-                        material.background_color = color_node.out_color;
+                        material.texture_background_color = color_node.out_color;
                     }
                 }
             }

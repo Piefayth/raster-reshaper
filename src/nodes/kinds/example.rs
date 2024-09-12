@@ -333,7 +333,7 @@ declare_node!(
                         view: &self.texture_view,
                         resolve_target: None,
                         ops: Operations {
-                            load: LoadOp::Clear(LinearRgba::rgb(0.1, 0.2, 0.3).into()),
+                            load: LoadOp::Clear(LinearRgba::new(0.1, 0.2, 0.3, 0.0).into()),
                             store: StoreOp::Store,
                         },
                     })],
