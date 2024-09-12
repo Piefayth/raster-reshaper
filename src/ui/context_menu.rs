@@ -121,6 +121,20 @@ impl ContextMenu {
                 ec.with_children(|child_builder| {
                     ContextMenuEntry::spawn(
                         child_builder,
+                        "Copy",
+                        font.clone(),
+                        CopyEvent
+                    );
+
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Paste",
+                        font.clone(),
+                        PasteEvent::FromCursor(cursor_world_pos),
+                    );
+
+                    ContextMenuEntry::spawn(
+                        child_builder,
                         "Example",
                         font.clone(),
                         AddNodeEvent::FromKind(AddNodeKind {
@@ -144,6 +158,20 @@ impl ContextMenu {
             }
             UIContext::Node(entity) => {
                 ec.with_children(|child_builder| {
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Copy",
+                        font.clone(),
+                        CopyEvent
+                    );
+
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Paste",
+                        font.clone(),
+                        PasteEvent::FromCursor(cursor_world_pos),
+                    );
+
                     ContextMenuEntry::spawn(
                         child_builder,
                         "Delete",
@@ -197,6 +225,13 @@ impl ContextMenu {
                                 font.clone(),
                                 LoadEvent
                             );
+
+                            ContextMenuEntry::spawn(
+                                child_builder,
+                                "Exit",
+                                font.clone(),
+                                ExitEvent
+                            );
                         },
                         MenuButton::Edit => {
                             ContextMenuEntry::spawn(
@@ -210,7 +245,7 @@ impl ContextMenu {
                                 child_builder,
                                 "Paste",
                                 font.clone(),
-                                PasteEvent
+                                PasteEvent::FromMenu,
                             );
                         },
                     }
@@ -608,3 +643,6 @@ pub fn handle_remove_node_request(
         commands.trigger(RemoveNodeEvent { node_entity });
     }
 }
+
+#[derive(Event, Clone)]
+pub struct ExitEvent;
