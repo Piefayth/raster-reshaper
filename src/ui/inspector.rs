@@ -1,5 +1,5 @@
 use bevy::{
-    color::palettes::tailwind::SLATE_900, prelude::*, ui::Direction as UIDirection, utils::HashSet,
+    color::palettes::tailwind::{SLATE_400, SLATE_500, SLATE_600, SLATE_900}, prelude::*, ui::Direction as UIDirection, utils::HashSet,
 };
 use bevy_cosmic_edit::*;
 use field_heading::FieldHeadingWidget;
@@ -15,7 +15,7 @@ use crate::{
     graph::{DisjointPipelineGraph, GraphWasUpdated},
     nodes::{
         fields::Field,
-        ports::{InputPort, OutputPort},
+        ports::{format_label_text, InputPort, OutputPort},
         NodeDisplay, NodeTrait, Selected,
     },
     ApplicationState,
@@ -83,9 +83,11 @@ impl InspectorPanel {
                     height: Val::Percent(100.),
                     flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::left(Val::Px(1.)),
                     ..default()
                 },
                 background_color: SLATE_900.into(),
+                border_color: SLATE_600.into(),
                 ..default()
             })
             .insert(Name::new("Inspector Panel"))
@@ -160,9 +162,10 @@ fn on_node_selection_changed(
                         section_entity,
                         &format!("{} Properties", node.kind),
                         &fonts,
+                        18.,
                     );
 
-                    spawn_header(&mut commands, section_entity, "Inputs", &fonts);
+                    spawn_header(&mut commands, section_entity, "Inputs", &fonts, 16.);
 
                     // Get children of the selected node
                     if let Ok(node_children) = children.get(selected_entity) {
@@ -191,7 +194,7 @@ fn on_node_selection_changed(
 
                                     let widget_entity = FieldHeadingWidget::spawn(
                                         &mut commands,
-                                        input_id.1,
+                                        &format_label_text(input_id.1),
                                         input_port,
                                         true,
                                         is_visible,
@@ -222,7 +225,7 @@ fn on_node_selection_changed(
                             }
                         }
 
-                        spawn_header(&mut commands, section_entity, "Outputs", &fonts);
+                        spawn_header(&mut commands, section_entity, "Outputs", &fonts, 16.);
 
                         // Spawn output widgets
                         for &output_id in node.kind.output_fields() {
@@ -248,7 +251,7 @@ fn on_node_selection_changed(
 
                                     let widget_entity = FieldHeadingWidget::spawn(
                                         &mut commands,
-                                        output_id.1,
+                                        &format_label_text(output_id.1),
                                         output_port,
                                         false,
                                         is_visible,
@@ -345,13 +348,13 @@ fn trigger_inspector_updates(
     }
 }
 
-fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res<FontAssets>) {
+fn spawn_header(commands: &mut Commands, parent: Entity, text: &str, fonts: &Res<FontAssets>, font_size: f32,) {
     let header_entity = commands
         .spawn(TextBundle::from_section(
             text,
             TextStyle {
                 font: fonts.deja_vu_sans_bold.clone(),
-                font_size: 18.0,
+                font_size,
                 color: Color::WHITE,
             },
         ))

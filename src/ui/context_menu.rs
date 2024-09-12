@@ -1,8 +1,7 @@
 use crate::{
     asset::FontAssets,
     events::{
-        edge_events::RemoveEdgeEvent,
-        node_events::{AddNodeEvent, AddNodeKind, RemoveNodeEvent},
+        edge_events::RemoveEdgeEvent, node_events::{AddNodeEvent, AddNodeKind, RemoveNodeEvent}, RequestRedo, RequestUndo
     },
     graph::DisjointPipelineGraph,
     nodes::{
@@ -31,7 +30,7 @@ use bevy_mod_picking::{
 use petgraph::{visit::EdgeRef, Direction};
 
 use super::{
-    menu_bar::{CopyEvent, LoadEvent, MenuButton, PasteEvent, SaveEvent},
+    menu_bar::{CopyEvent, ExitEvent, LoadEvent, MenuButton, NewProjectEvent, PasteEvent, SaveEvent},
     Spawner, UiRoot,
 };
 
@@ -137,6 +136,10 @@ impl ContextMenu {
                         font.clone(),
                         PasteEvent::FromCursor(cursor_world_pos),
                     );
+                    
+                    ContextMenuEntry::spawn(child_builder, "Undo", font.clone(), RequestUndo);
+
+                    ContextMenuEntry::spawn(child_builder, "Redo", font.clone(), RequestRedo);
 
                     ContextMenuDivider::spawn(child_builder);
 
@@ -213,6 +216,8 @@ impl ContextMenu {
             UIContext::MenuBar(file_menu_context) => {
                 ec.with_children(|child_builder| match file_menu_context.button_kind {
                     MenuButton::File => {
+                        ContextMenuEntry::spawn(child_builder, "New", font.clone(), NewProjectEvent);
+
                         ContextMenuEntry::spawn(child_builder, "Save", font.clone(), SaveEvent);
 
                         ContextMenuEntry::spawn(child_builder, "Load", font.clone(), LoadEvent);
@@ -228,6 +233,10 @@ impl ContextMenu {
                             font.clone(),
                             PasteEvent::FromMenu,
                         );
+
+                        ContextMenuEntry::spawn(child_builder, "Undo", font.clone(), RequestUndo);
+
+                        ContextMenuEntry::spawn(child_builder, "Redo", font.clone(), RequestRedo);
                     }
                 });
             }
@@ -636,6 +645,3 @@ pub fn handle_remove_node_request(
         commands.trigger(RemoveNodeEvent { node_entity });
     }
 }
-
-#[derive(Event, Clone)]
-pub struct ExitEvent;

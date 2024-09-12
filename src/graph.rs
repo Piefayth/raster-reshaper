@@ -250,12 +250,6 @@ async fn process_node(mut p_node: ProcessNode) -> ProcessNode {
 
     p_node.node.kind.process().await;
 
-    println!(
-        "Node with index {:?} processed in {:?}",
-        p_node.index,
-        start.elapsed()
-    );
-
     p_node.node.last_process_time = start.elapsed();
 
     p_node
@@ -328,7 +322,6 @@ impl AddEdgeChecked for StableDiGraph<GraphNode, Edge> {
             .ok_or_else(|| format!("Input field {:?} not found in target node", edge.to_field))?;
 
         if !can_convert_field(&output, &input) {
-            println!("output {:?} input {:?}", output, input);
             return Err(format!("Cannot convert output to input",));
         }
 

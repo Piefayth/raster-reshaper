@@ -147,7 +147,7 @@ impl InputPort {
                         label_text,
                         TextStyle {
                             font,
-                            font_size: 16.0,
+                            font_size: 14.0,
                             color: Color::WHITE,
                         },
                     ),
@@ -228,7 +228,7 @@ impl OutputPort {
                         label_text,
                         TextStyle {
                             font,
-                            font_size: 16.0,
+                            font_size: 14.0,
                             color: Color::WHITE,
                         },
                     ),
@@ -450,28 +450,30 @@ pub fn handle_port_selection(
             match direction {
                 Direction::Incoming => {
                     if let Some(snapped_port) = maybe_snapped_port {
-                        let (_, _, start_port_data, _) = q_output_port.get(start_port).unwrap();
-                        let (_, _, end_port_data, _) = q_input_port.get(snapped_port).unwrap();
-
-                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
-                            start_node: start_port_data.node_entity,
-                            start_id: start_port_data.output_id,
-                            end_node: end_port_data.node_entity,
-                            end_id: end_port_data.input_id,
-                        }));
+                        if let Ok((_, _, start_port_data, _)) = q_output_port.get(start_port) {
+                            if let Ok((_, _, end_port_data, _)) = q_input_port.get(snapped_port) {
+                                commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
+                                    start_node: start_port_data.node_entity,
+                                    start_id: start_port_data.output_id,
+                                    end_node: end_port_data.node_entity,
+                                    end_id: end_port_data.input_id,
+                                }));
+                            }
+                        }
                     }
                 }
                 Direction::Outgoing => {
                     if let Some(snapped_port) = maybe_snapped_port {
-                        let (_, _, start_port_data, _) = q_output_port.get(snapped_port).unwrap();
-                        let (_, _, end_port_data, _) = q_input_port.get(start_port).unwrap();
-                        
-                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
-                            start_node: start_port_data.node_entity,
-                            start_id: start_port_data.output_id,
-                            end_node: end_port_data.node_entity,
-                            end_id: end_port_data.input_id,
-                        }));
+                         if let Ok((_, _, start_port_data, _)) = q_output_port.get(snapped_port) {
+                            if let Ok((_, _, end_port_data, _)) = q_input_port.get(start_port) {
+                                commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge{
+                                    start_node: start_port_data.node_entity,
+                                    start_id: start_port_data.output_id,
+                                    end_node: end_port_data.node_entity,
+                                    end_id: end_port_data.input_id,
+                                }));
+                            }
+                         }
                     }
                 }
             }
@@ -626,7 +628,7 @@ pub fn port_color(field: &Field) -> LinearRgba {
     }
 }
 
-fn format_label_text(text: &str) -> String {
+pub fn format_label_text(text: &str) -> String {
     text.split('_')
         .map(|word| {
             let mut chars = word.chars();

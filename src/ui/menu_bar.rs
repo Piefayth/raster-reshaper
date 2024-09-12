@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use bevy::{math::VectorSpace, prelude::*, utils::hashbrown::HashMap, window::PrimaryWindow};
+use bevy::{color::palettes::{css::BLACK, tailwind::{SLATE_400, SLATE_500, SLATE_600, SLATE_700, SLATE_800, SLATE_900}}, math::VectorSpace, prelude::*, utils::hashbrown::HashMap, window::PrimaryWindow};
 use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
 use bevy_mod_picking::{
     events::{Down, Out, Over, Pointer, Up},
@@ -29,7 +29,7 @@ use crate::{
 
 use super::{
     context_menu::{
-        ContextMenuPositionSource, ExitEvent, MenuBarContext, RequestOpenContextMenu, UIContext,
+        ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext,
     },
     Spawner,
 };
@@ -52,15 +52,16 @@ impl Plugin for MenuBarPlugin {
             .observe(handle_load_request)
             .observe(handle_copy_request)
             .observe(handle_paste_request)
-            .observe(handle_exit_request);
+            .observe(handle_exit_request)
+            .observe(handle_new_project_event);
 
         app.world_mut().spawn(WorkingFilename(None));
     }
 }
 
-const MENU_BG_COLOR: LinearRgba = LinearRgba::new(0.1, 0.1, 0.1, 0.1);
-const MENU_HOVER_COLOR: LinearRgba = LinearRgba::new(0.3, 0.3, 0.3, 0.3);
-const MENU_CLICK_COLOR: LinearRgba = LinearRgba::new(0.5, 0.5, 0.5, 0.5);
+const MENU_BG_COLOR: Srgba = SLATE_900;
+const MENU_HOVER_COLOR: Srgba = SLATE_800;
+const MENU_CLICK_COLOR: Srgba = SLATE_700;
 
 #[derive(Component)]
 pub struct MenuBar;
@@ -72,9 +73,11 @@ impl MenuBar {
                 style: Style {
                     width: Val::Percent(100.0),
                     align_items: AlignItems::Center,
+                    border: UiRect::bottom(Val::Px(1.)),
                     ..default()
                 },
-                background_color: Color::linear_rgb(0.1, 0.1, 0.1).into(),
+                background_color: MENU_BG_COLOR.into(),
+                border_color: SLATE_600.into(),
                 ..default()
             },
             MenuBar,
@@ -268,7 +271,6 @@ fn file_load_complete(
         let maybe_deserialized = rmp_serde::from_slice::<SaveFile>(&ev.contents);
         match maybe_deserialized {
             Ok(save_file) => {
-                println!("file load {:?}", save_file);
 
                 for (_, node) in graph.node_references() {
                     commands.trigger(RemoveNodeEvent {
@@ -473,8 +475,22 @@ fn handle_paste_request(
     }
 }
 
+#[derive(Event, Clone)]
+pub struct ExitEvent;
+
 fn handle_exit_request(trigger: Trigger<ExitEvent>, mut exit: EventWriter<AppExit>) {
     exit.send(AppExit::Success);
+}
+
+
+
+#[derive(Event, Clone)]
+pub struct NewProjectEvent;
+
+pub fn handle_new_project_event(
+    trigger: Trigger<NewProjectEvent>,
+) {
+    println!("NEW!!!");
 }
 
 fn handle_copy_paste_input(

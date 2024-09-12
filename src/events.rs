@@ -16,12 +16,6 @@ pub struct EventsPlugin;
 impl Plugin for EventsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
-            Update,
-            (handle_undo, handle_redo)
-                .run_if(in_state(ApplicationState::MainLoop)),
-        );
-
-        app.add_systems(
             PreUpdate,
             (handle_undo_redo_input).run_if(in_state(ApplicationState::MainLoop)),
         );
@@ -35,10 +29,9 @@ impl Plugin for EventsPlugin {
 
         app.init_resource::<CurrentFrameUndoableEvents>();
 
-        app.add_event::<RequestUndo>();
-        app.add_event::<RequestRedo>();
-
         app.observe(handle_undoable);
+        app.observe(handle_undo);
+        app.observe(handle_redo);
 
         app.observe(edge_events::add_edge);
         app.observe(edge_events::remove_edge);
@@ -165,159 +158,162 @@ fn flush_undoable_events(
 
 
 fn handle_undo_redo_input(
+    mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut undo_writer: EventWriter<RequestUndo>,
-    mut redo_writer: EventWriter<RequestRedo>,
 ) {
     if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight)
     {
         if keyboard_input.just_pressed(KeyCode::KeyZ) {
-            undo_writer.send(RequestUndo);
+            commands.trigger(RequestUndo);
         }
         if keyboard_input.just_pressed(KeyCode::KeyY) {
-            redo_writer.send(RequestRedo);
+            commands.trigger(RequestRedo);
         }
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Clone)]
 pub struct RequestUndo;
 
 fn handle_undo(
+    trigger: Trigger<RequestUndo>,
     mut commands: Commands,
-    mut undo_events: EventReader<RequestUndo>,
     mut history: ResMut<HistoricalActions>,
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
-    for _ in undo_events.read() {
-        if history.current_index > 0 {
-            current_frame_events.is_undo_or_redo = true;
-            history.current_index -= 1;
+    if current_frame_events.is_undo_or_redo {
+        return;
+    }
 
-            if let Some(events) = history.actions.get(history.current_index) {
-                for event in events.iter().rev() {
-                    match event {
-                        UndoableEvent::AddEdge(e) => {
-                            match e {
-                                AddEdgeEvent::FromNodes(e) => {
-                                    commands.trigger(RemoveEdgeEvent {
-                                        start_node: e.start_node,
-                                        start_id: e.start_id,
-                                        end_node: e.end_node,
-                                        end_id: e.end_id,
-                                    });
-                                },
-                                AddEdgeEvent::FromSerialized(_) => panic!("Found a from serialized add edge event in the undo stack?"),
-                            }
+    if history.current_index > 0 {
+        current_frame_events.is_undo_or_redo = true;
+        history.current_index -= 1;
+
+        if let Some(events) = history.actions.get(history.current_index) {
+            for event in events.iter().rev() {
+                match event {
+                    UndoableEvent::AddEdge(e) => {
+                        match e {
+                            AddEdgeEvent::FromNodes(e) => {
+                                commands.trigger(RemoveEdgeEvent {
+                                    start_node: e.start_node,
+                                    start_id: e.start_id,
+                                    end_node: e.end_node,
+                                    end_id: e.end_id,
+                                });
+                            },
+                            AddEdgeEvent::FromSerialized(_) => panic!("Found a from serialized add edge event in the undo stack?"),
                         }
-                        UndoableEvent::RemoveEdge(e) => {
-                            commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge {
-                                start_node: e.start_node,
-                                start_id: e.start_id,
-                                end_node: e.end_node,
-                                end_id: e.end_id,
-                            }));
-                        }
-                        UndoableEvent::SetInputMeta(e) => {
-                            commands.trigger(UndoableSetInputFieldMetaEvent {
-                                input_port: e.input_port,
-                                old_meta: e.meta.clone(),
-                                meta: e.old_meta.clone()
-                            });
-                        }
-                        UndoableEvent::SetOutputMeta(e) => {
-                            commands.trigger(UndoableSetOutputFieldMetaEvent {
-                                output_port: e.output_port,
-                                old_meta: e.meta.clone(),
-                                meta: e.old_meta.clone()
-                            });
-                        }
-                        UndoableEvent::SetInputField(e) => {
-                            commands.trigger(SetInputFieldEvent {
-                                node: e.node,
-                                input_id: e.input_id,
-                                old_value: e.new_value.clone(),
-                                new_value: e.old_value.clone(),
-                            });
-                        }
-                        UndoableEvent::SetOutputField(e) => {
-                            commands.trigger(SetOutputFieldEvent {
-                                node: e.node,
-                                output_id: e.output_id,
-                                old_value: e.new_value.clone(),
-                                new_value: e.old_value.clone(),
-                            });
-                        }
-                        UndoableEvent::AddNode(e) => {
-                            commands.trigger(RemoveNodeEvent {
-                                node_entity: e.node_entity,
-                            });
-                        }
-                        UndoableEvent::RemoveNode(e) => commands.trigger(UndoableAddNodeEvent {
-                            node: e.node.clone(),
-                            node_entity: e.node_entity,
-                        }),
-                        UndoableEvent::DragNode(e) => commands.trigger(UndoableDragNodeEvent {
-                            node_entity: e.node_entity,
-                            old_position: e.new_position,
-                            new_position: e.old_position,
-                        }),
                     }
+                    UndoableEvent::RemoveEdge(e) => {
+                        commands.trigger(AddEdgeEvent::FromNodes(AddNodeEdge {
+                            start_node: e.start_node,
+                            start_id: e.start_id,
+                            end_node: e.end_node,
+                            end_id: e.end_id,
+                        }));
+                    }
+                    UndoableEvent::SetInputMeta(e) => {
+                        commands.trigger(UndoableSetInputFieldMetaEvent {
+                            input_port: e.input_port,
+                            old_meta: e.meta.clone(),
+                            meta: e.old_meta.clone()
+                        });
+                    }
+                    UndoableEvent::SetOutputMeta(e) => {
+                        commands.trigger(UndoableSetOutputFieldMetaEvent {
+                            output_port: e.output_port,
+                            old_meta: e.meta.clone(),
+                            meta: e.old_meta.clone()
+                        });
+                    }
+                    UndoableEvent::SetInputField(e) => {
+                        commands.trigger(SetInputFieldEvent {
+                            node: e.node,
+                            input_id: e.input_id,
+                            old_value: e.new_value.clone(),
+                            new_value: e.old_value.clone(),
+                        });
+                    }
+                    UndoableEvent::SetOutputField(e) => {
+                        commands.trigger(SetOutputFieldEvent {
+                            node: e.node,
+                            output_id: e.output_id,
+                            old_value: e.new_value.clone(),
+                            new_value: e.old_value.clone(),
+                        });
+                    }
+                    UndoableEvent::AddNode(e) => {
+                        commands.trigger(RemoveNodeEvent {
+                            node_entity: e.node_entity,
+                        });
+                    }
+                    UndoableEvent::RemoveNode(e) => commands.trigger(UndoableAddNodeEvent {
+                        node: e.node.clone(),
+                        node_entity: e.node_entity,
+                    }),
+                    UndoableEvent::DragNode(e) => commands.trigger(UndoableDragNodeEvent {
+                        node_entity: e.node_entity,
+                        old_position: e.new_position,
+                        new_position: e.old_position,
+                    }),
                 }
             }
         }
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Clone)]
 pub struct RequestRedo;
 
 fn handle_redo(
+    trigger: Trigger<RequestRedo>,
     mut commands: Commands,
-    mut redo_events: EventReader<RequestRedo>,
     mut history: ResMut<HistoricalActions>,
     mut current_frame_events: ResMut<CurrentFrameUndoableEvents>,
 ) {
-    for _ in redo_events.read() {
-        if history.current_index < history.actions.len() {
-            current_frame_events.is_undo_or_redo = true;
+    if current_frame_events.is_undo_or_redo {
+        return;
+    }
 
-            if let Some(events) = history.actions.get(history.current_index) {
-                for event in events {
-                    match event {
-                        UndoableEvent::AddEdge(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::RemoveEdge(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::SetInputMeta(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::SetOutputMeta(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::SetInputField(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::SetOutputField(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::AddNode(e) => {
-                            commands.trigger(e.clone())
-                        },
-                        UndoableEvent::RemoveNode(e) => {
-                            commands.trigger(e.clone());
-                        }
-                        UndoableEvent::DragNode(e) => {
-                            commands.trigger(e.clone());
-                        }
+    if history.current_index < history.actions.len() {
+        current_frame_events.is_undo_or_redo = true;
+
+        if let Some(events) = history.actions.get(history.current_index) {
+            for event in events {
+                match event {
+                    UndoableEvent::AddEdge(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::RemoveEdge(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::SetInputMeta(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::SetOutputMeta(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::SetInputField(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::SetOutputField(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::AddNode(e) => {
+                        commands.trigger(e.clone())
+                    },
+                    UndoableEvent::RemoveNode(e) => {
+                        commands.trigger(e.clone());
+                    }
+                    UndoableEvent::DragNode(e) => {
+                        commands.trigger(e.clone());
                     }
                 }
             }
-
-            history.current_index += 1;
         }
+
+        history.current_index += 1;
     }
 }
 

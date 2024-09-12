@@ -1,4 +1,4 @@
-use bevy::{ecs::system::SystemId, prelude::*};
+use bevy::{color::palettes::tailwind::SLATE_800, ecs::system::SystemId, prelude::*};
 use bevy_cosmic_edit::*;
 use bevy_mod_picking::events::{Down, Pointer};
 
@@ -65,7 +65,7 @@ impl TextInputWidget {
                     cursor_color: CursorColor(Color::linear_rgba(0.5, 0.5, 0.5, 1.0).into()),
                     selection_color: SelectionColor(Color::linear_rgba(0.3, 0.3, 0.7, 1.0).into()),
                     fill_color: CosmicBackgroundColor(
-                        Color::linear_rgba(0.1, 0.1, 0.1, 1.0).into(),
+                        SLATE_800.into(),
                     ),
                     mode: CosmicWrap::Wrap,
                     ..default()
@@ -87,6 +87,7 @@ impl TextInputWidget {
                 style: Style {
                     display: Display::Flex,
                     flex_direction: FlexDirection::Row,
+                    justify_content: JustifyContent::SpaceBetween,
                     align_items: AlignItems::Center,
                     margin: UiRect::vertical(Val::Px(2.0)),
                     ..default()
@@ -106,6 +107,7 @@ impl TextInputWidget {
                     ))
                     .insert(Style {
                         margin: UiRect::right(Val::Px(5.0)),
+                        min_width: Val::Px(20.),
                         ..default()
                     });
 

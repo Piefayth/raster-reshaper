@@ -74,11 +74,9 @@ impl LinearRgbaInputWidget {
                 style: Style {
                     display: Display::Flex,
                     flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Stretch,
                     padding: UiRect::all(Val::Px(10.0)),
                     ..default()
                 },
-                background_color: Color::linear_rgba(0.1, 0.1, 0.1, 0.5).into(),
                 ..default()
             })
             .id();
@@ -206,7 +204,6 @@ impl LinearRgbaOutputWidget {
                     padding: UiRect::all(Val::Px(10.0)),
                     ..default()
                 },
-                background_color: Color::linear_rgba(0.1, 0.1, 0.1, 0.5).into(),
                 ..default()
             })
             .id();

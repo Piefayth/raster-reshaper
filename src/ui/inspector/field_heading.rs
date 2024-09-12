@@ -43,7 +43,6 @@ impl FieldHeadingWidget {
                     padding: UiRect::all(Val::Px(5.0)),
                     ..default()
                 },
-                background_color: Color::linear_rgba(0.1, 0.1, 0.1, 0.5).into(),
                 ..default()
             })
             .id();
@@ -51,8 +50,8 @@ impl FieldHeadingWidget {
         let animation_toggle = commands
             .spawn(ButtonBundle {
                 style: Style {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
+                    width: Val::Px(12.0),
+                    height: Val::Px(12.0),
                     margin: UiRect::right(Val::Px(5.0)),
                     ..default()
                 },
@@ -64,13 +63,13 @@ impl FieldHeadingWidget {
         let visibility_switch = commands
             .spawn(ButtonBundle {
                 style: Style {
-                    width: Val::Px(20.0),
-                    height: Val::Px(20.0),
+                    width: Val::Px(12.0),
+                    height: Val::Px(12.0),
                     margin: UiRect::right(Val::Px(5.0)),
                     ..default()
                 },
                 background_color: if is_visible { GREEN.into() } else { RED.into() },
-                border_radius: BorderRadius::all(Val::Px(10.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             })
             .id();
