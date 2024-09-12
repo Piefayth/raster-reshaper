@@ -19,11 +19,7 @@ use bevy::{
     color::palettes::{
         css::{ORANGE, PINK, TEAL, YELLOW},
         tailwind::{GRAY_400, RED_700},
-    },
-    prelude::*,
-    sprite::{Anchor, MaterialMesh2dBundle},
-    ui::Direction as UIDirection,
-    window::PrimaryWindow,
+    }, prelude::*, scene::ron::de, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, utils::{HashMap, HashSet}, window::PrimaryWindow
 };
 use bevy_mod_picking::{
     events::{DragEnd, DragStart, Pointer},
@@ -53,10 +49,15 @@ impl Plugin for PortPlugin {
             direction: Direction::Incoming,
         });
 
+        app.insert_resource(PortMaterialIndex(HashMap::new()));
+
         app.observe(reposition_input_ports);
         app.observe(reposition_output_ports);
     }
 }
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct PortMaterialIndex(HashMap<PortMaterial, Handle<PortMaterial>>);
 
 #[derive(Event)]
 pub struct RequestInputPortRelayout {
@@ -90,18 +91,27 @@ impl InputPort {
         node_entity: Entity,
         input_id: InputId,
         port_materials: &mut Assets<PortMaterial>,
+        port_material_index: &mut ResMut<PortMaterialIndex>,
         meshes: &Res<GeneratedMeshes>,
         font: Handle<Font>,
     ) -> Entity {
         let field = node.kind.get_input(input_id).unwrap();
         let meta = node.kind.get_input_meta(input_id).unwrap();
 
-        let port_material = port_materials.add(PortMaterial {
+        let desired_material = PortMaterial {
             port_color: port_color(&field),
             outline_color: Color::WHITE.into(),
             outline_thickness: 0.05,
             is_hovered: 0.,
-        });
+        };
+
+        let port_material = if port_material_index.contains_key(&desired_material) {
+            port_material_index.get(&desired_material).unwrap().clone()
+        } else {
+            let handle = port_materials.add(desired_material.clone());
+            port_material_index.insert(desired_material, handle.clone());
+            handle
+        };
 
         let label_text = format_label_text(input_id.1);
 
@@ -161,18 +171,28 @@ impl OutputPort {
         node_entity: Entity,
         output_id: OutputId,
         port_materials: &mut Assets<PortMaterial>,
+        port_material_index: &mut ResMut<PortMaterialIndex>,
         meshes: &Res<GeneratedMeshes>,
         font: Handle<Font>,
     ) -> Entity {
         let field = node.kind.get_output(output_id).unwrap();
         let meta = node.kind.get_output_meta(output_id).unwrap();
 
-        let port_material = port_materials.add(PortMaterial {
+
+        let desired_material = PortMaterial {
             port_color: port_color(&field),
             outline_color: Color::WHITE.into(),
             outline_thickness: 0.05,
             is_hovered: 0.,
-        });
+        };
+
+        let port_material = if port_material_index.contains_key(&desired_material) {
+            port_material_index.get(&desired_material).unwrap().clone()
+        } else {
+            let handle = port_materials.add(desired_material.clone());
+            port_material_index.insert(desired_material, handle.clone());
+            handle
+        };
 
         let label_text = format_label_text(output_id.1);
 
@@ -460,34 +480,50 @@ pub fn handle_port_selection(
 }
 
 fn handle_port_hover(
-    mut materials: ResMut<Assets<PortMaterial>>,
-    mut interaction_query: Query<(Entity, &PickingInteraction, &Handle<PortMaterial>)>,
+    mut port_materials: ResMut<Assets<PortMaterial>>,
+    mut interaction_query: Query<(Entity, &PickingInteraction, &mut Handle<PortMaterial>)>,
+    mut port_material_index: ResMut<PortMaterialIndex>,
     q_snapped_ports: Query<Entity, With<SnappedPort>>,
 ) {
     let maybe_snapped_port = q_snapped_ports.iter().last();
 
-    for (port_entity, interaction, material_handle) in interaction_query.iter_mut() {
-        if let Some(material) = materials.get_mut(material_handle) {
-            match maybe_snapped_port {
+    for (port_entity, interaction, mut material_handle) in interaction_query.iter_mut() {
+        if let Some(material) = port_materials.get_mut(material_handle.id()) {
+            let desired_hover = match maybe_snapped_port {
                 Some(snapped_port) => {
                     if port_entity == snapped_port {
-                        material.is_hovered = 1.0;
+                        1.0
                     } else {
-                        material.is_hovered = 0.0;
+                        0.0
                     }
                 }
                 None => match *interaction {
                     PickingInteraction::Pressed => {
-                        material.is_hovered = 1.0;
+                        1.0
                     }
                     PickingInteraction::Hovered => {
-                        material.is_hovered = 1.0;
+                        1.0
                     }
                     _ => {
-                        material.is_hovered = 0.0;
+                        0.0
                     }
                 },
-            }
+            };
+
+            let desired_material = PortMaterial {
+                is_hovered: desired_hover,
+                ..material.clone()
+            };
+
+            let port_material = if port_material_index.contains_key(&desired_material) {
+                port_material_index.get(&desired_material).unwrap().clone()
+            } else {
+                let handle = port_materials.add(desired_material.clone());
+                port_material_index.insert(desired_material, handle.clone());
+                handle
+            };
+
+            *material_handle = port_material;
         }
     }
 }

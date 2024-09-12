@@ -9,7 +9,7 @@ use crate::{
     nodes::{
         kinds::{color::ColorNode, example::ExampleNode},
         node_kind_name,
-        ports::{InputPort, OutputPort, RequestInputPortRelayout, RequestOutputPortRelayout},
+        ports::{InputPort, OutputPort, PortMaterialIndex, RequestInputPortRelayout, RequestOutputPortRelayout},
         shared::shader_source,
         EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait,
         RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind,
@@ -25,6 +25,7 @@ use bevy::{
     prelude::*,
     sprite::{Anchor, MaterialMesh2dBundle},
 };
+use bevy_mod_picking::focus::PickingInteraction;
 use wgpu::TextureFormat;
 
 use super::{edge_events::RemoveEdgeEvent, UndoableEvent};
@@ -160,6 +161,7 @@ pub fn add_node(
     mut images: ResMut<Assets<Image>>,
     mut node_display_materials: ResMut<Assets<NodeDisplayMaterial>>,
     mut port_materials: ResMut<Assets<PortMaterial>>,
+    mut port_material_index: ResMut<PortMaterialIndex>,
     meshes: Res<GeneratedMeshes>,
     mut node_count: ResMut<NodeCount>,
     fonts: Res<FontAssets>,
@@ -298,10 +300,11 @@ pub fn add_node(
                 border_color: GRAY_400.into(),
                 default_border_color: GRAY_400.into(),
                 hover_border_color: GRAY_200.into(),
-                focus_border_color: ORANGE.into(),
+                selected_border_color: ORANGE.into(),
             }),
             ..default()
         })
+        .insert(PickingInteraction::None)
         .insert(UIContext::Node(node_entity))
         .with_children(|child_builder| {
             let heading_text_margin_left = 10.;
@@ -336,6 +339,7 @@ pub fn add_node(
                     node_entity,
                     *input_id,
                     &mut port_materials,
+                    &mut port_material_index,
                     &meshes,
                     fonts.deja_vu_sans_bold.clone(),
                 );
@@ -353,6 +357,7 @@ pub fn add_node(
                     node_entity,
                     *output_id,
                     &mut port_materials,
+                    &mut port_material_index,
                     &meshes,
                     fonts.deja_vu_sans_bold.clone(),
                 );

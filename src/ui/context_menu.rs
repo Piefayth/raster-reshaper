@@ -14,8 +14,13 @@ use crate::{
 use bevy::{
     color::palettes::{
         css::WHITE,
-        tailwind::{GRAY_600, GRAY_800},
-    }, ecs::system::EntityCommands, math::VectorSpace, prelude::*, ui::Direction as UIDirection, window::PrimaryWindow
+        tailwind::{GRAY_400, GRAY_600, GRAY_800},
+    },
+    ecs::system::EntityCommands,
+    math::VectorSpace,
+    prelude::*,
+    ui::Direction as UIDirection,
+    window::PrimaryWindow,
 };
 use bevy_mod_picking::{
     events::{Click, Down, Out, Over, Pointer, Up},
@@ -25,13 +30,19 @@ use bevy_mod_picking::{
 };
 use petgraph::{visit::EdgeRef, Direction};
 
-use super::{menu_bar::{CopyEvent, LoadEvent, MenuButton, PasteEvent, SaveEvent}, Spawner, UiRoot};
+use super::{
+    menu_bar::{CopyEvent, LoadEvent, MenuButton, PasteEvent, SaveEvent},
+    Spawner, UiRoot,
+};
 
 pub struct ContextMenuPlugin;
 
 impl Plugin for ContextMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, cancel_context_menu.run_if(in_state(ApplicationState::MainLoop)));
+        app.add_systems(
+            PreUpdate,
+            cancel_context_menu.run_if(in_state(ApplicationState::MainLoop)),
+        );
         app.add_systems(
             Update,
             (
@@ -66,7 +77,6 @@ pub enum UIContext {
 pub struct MenuBarContext {
     pub button_kind: MenuButton,
 }
-
 
 #[derive(Debug)]
 pub struct InputPortContext {
@@ -119,12 +129,7 @@ impl ContextMenu {
         match ctx {
             UIContext::NodeEditArea => {
                 ec.with_children(|child_builder| {
-                    ContextMenuEntry::spawn(
-                        child_builder,
-                        "Copy",
-                        font.clone(),
-                        CopyEvent
-                    );
+                    ContextMenuEntry::spawn(child_builder, "Copy", font.clone(), CopyEvent);
 
                     ContextMenuEntry::spawn(
                         child_builder,
@@ -133,9 +138,11 @@ impl ContextMenu {
                         PasteEvent::FromCursor(cursor_world_pos),
                     );
 
+                    ContextMenuDivider::spawn(child_builder);
+
                     ContextMenuEntry::spawn(
                         child_builder,
-                        "Example",
+                        "Example Node",
                         font.clone(),
                         AddNodeEvent::FromKind(AddNodeKind {
                             position: cursor_world_pos,
@@ -144,7 +151,7 @@ impl ContextMenu {
                     );
                     ContextMenuEntry::spawn(
                         child_builder,
-                        "Color",
+                        "Color Node",
                         font.clone(),
                         AddNodeEvent::FromKind(AddNodeKind {
                             position: cursor_world_pos,
@@ -158,12 +165,7 @@ impl ContextMenu {
             }
             UIContext::Node(entity) => {
                 ec.with_children(|child_builder| {
-                    ContextMenuEntry::spawn(
-                        child_builder,
-                        "Copy",
-                        font.clone(),
-                        CopyEvent
-                    );
+                    ContextMenuEntry::spawn(child_builder, "Copy", font.clone(), CopyEvent);
 
                     ContextMenuEntry::spawn(
                         child_builder,
@@ -207,51 +209,28 @@ impl ContextMenu {
                         },
                     );
                 });
-            },
+            }
             UIContext::MenuBar(file_menu_context) => {
-                ec.with_children(|child_builder| {
-                    match file_menu_context.button_kind {
-                        MenuButton::File => {
-                            ContextMenuEntry::spawn(
-                                child_builder,
-                                "Save",
-                                font.clone(),
-                                SaveEvent
-                            );
+                ec.with_children(|child_builder| match file_menu_context.button_kind {
+                    MenuButton::File => {
+                        ContextMenuEntry::spawn(child_builder, "Save", font.clone(), SaveEvent);
 
-                            ContextMenuEntry::spawn(
-                                child_builder,
-                                "Load",
-                                font.clone(),
-                                LoadEvent
-                            );
+                        ContextMenuEntry::spawn(child_builder, "Load", font.clone(), LoadEvent);
 
-                            ContextMenuEntry::spawn(
-                                child_builder,
-                                "Exit",
-                                font.clone(),
-                                ExitEvent
-                            );
-                        },
-                        MenuButton::Edit => {
-                            ContextMenuEntry::spawn(
-                                child_builder,
-                                "Copy",
-                                font.clone(),
-                                CopyEvent
-                            );
-
-                            ContextMenuEntry::spawn(
-                                child_builder,
-                                "Paste",
-                                font.clone(),
-                                PasteEvent::FromMenu,
-                            );
-                        },
+                        ContextMenuEntry::spawn(child_builder, "Exit", font.clone(), ExitEvent);
                     }
+                    MenuButton::Edit => {
+                        ContextMenuEntry::spawn(child_builder, "Copy", font.clone(), CopyEvent);
 
+                        ContextMenuEntry::spawn(
+                            child_builder,
+                            "Paste",
+                            font.clone(),
+                            PasteEvent::FromMenu,
+                        );
+                    }
                 });
-            },
+            }
         }
 
         ec
@@ -314,6 +293,24 @@ impl ContextMenuEntry {
     }
 }
 
+#[derive(Component)]
+pub struct ContextMenuDivider;
+
+impl ContextMenuDivider {
+    fn spawn<'a>(spawner: &'a mut impl Spawner) -> EntityCommands<'a> {
+        spawner.spawn_bundle(NodeBundle {
+            style: Style {
+                width: Val::Percent(90.),
+                height: Val::Px(1.),
+                align_self: AlignSelf::Center,
+                ..default()
+            },
+            background_color: GRAY_400.into(),
+            ..default()
+        })
+    }
+}
+
 pub fn handle_uicontext_right_click(
     mut commands: Commands,
     mut mouse_events: EventReader<Pointer<Down>>,
@@ -357,7 +354,6 @@ pub struct RequestOpenContextMenu {
     pub position_offset: Vec2,
 }
 
-
 pub fn open_context_menu(
     trigger: Trigger<RequestOpenContextMenu>,
     mut commands: Commands,
@@ -386,29 +382,26 @@ pub fn open_context_menu(
     // Only spawn the context menu for entities that have a UIContext
     if let Ok(ctx) = q_contextualized.get(trigger.event().source) {
         let cursor_position = window.cursor_position().unwrap_or(Vec2::ZERO);
-    
-    
+
         let (position, world_position) = match trigger.event().position_source {
             ContextMenuPositionSource::Cursor => {
                 let (camera, camera_transform) = q_camera.single();
-                let world_position = match camera.viewport_to_world(camera_transform, cursor_position)
-                {
-                    Some(p) => p,
-                    None => return,
-                }
-                .origin
-                .truncate();
+                let world_position =
+                    match camera.viewport_to_world(camera_transform, cursor_position) {
+                        Some(p) => p,
+                        None => return,
+                    }
+                    .origin
+                    .truncate();
 
                 (cursor_position, world_position)
-            },
-            ContextMenuPositionSource::Entity => {
-                match q_transform.get(trigger.event().source) {
-                    Ok(transform) => {
-                        let out = trigger.event().position_offset + transform.translation().truncate();
-                        (out, out)
-                    },
-                    Err(_) => return,
+            }
+            ContextMenuPositionSource::Entity => match q_transform.get(trigger.event().source) {
+                Ok(transform) => {
+                    let out = trigger.event().position_offset + transform.translation().truncate();
+                    (out, out)
                 }
+                Err(_) => return,
             },
         };
 

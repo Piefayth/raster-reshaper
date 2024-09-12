@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use bevy::{prelude::*, utils::{hashbrown::HashMap}};
+use bevy::{math::VectorSpace, prelude::*, utils::hashbrown::HashMap, window::PrimaryWindow};
 use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
 use bevy_mod_picking::{
     events::{Down, Out, Over, Pointer, Up},
@@ -12,13 +12,25 @@ use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    camera::MainCamera, events::{edge_events::{AddEdgeEvent, AddSerializedEdge}, node_events::{AddNodeEvent, AddNodeKind, AddSerializedNode, RemoveNodeEvent}}, graph::{DisjointPipelineGraph, Edge, SerializableEdge}, nodes::{
-        fields::{Field, FieldMeta}, kinds::{color::SerializableColorNode, example::SerializableExampleNode}, GraphNodeKind, InputId, NodeDisplay, NodeTrait, RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId
-    }, ApplicationState
+    camera::MainCamera,
+    events::{
+        edge_events::{AddEdgeEvent, AddSerializedEdge},
+        node_events::{AddNodeEvent, AddNodeKind, AddSerializedNode, RemoveNodeEvent},
+    },
+    graph::{DisjointPipelineGraph, Edge, SerializableEdge},
+    nodes::{
+        fields::{Field, FieldMeta},
+        kinds::{color::SerializableColorNode, example::SerializableExampleNode},
+        GraphNodeKind, InputId, NodeDisplay, NodeTrait, RequestSpawnNodeKind, Selected,
+        SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId,
+    },
+    ApplicationState,
 };
 
 use super::{
-    context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext},
+    context_menu::{
+        ContextMenuPositionSource, ExitEvent, MenuBarContext, RequestOpenContextMenu, UIContext,
+    },
     Spawner,
 };
 
@@ -33,13 +45,14 @@ impl Plugin for MenuBarPlugin {
         );
         app.add_systems(
             Update,
-            (file_save_complete, file_load_complete).run_if(in_state(ApplicationState::MainLoop)),
+            (file_save_complete, file_load_complete, handle_copy_paste_input).run_if(in_state(ApplicationState::MainLoop)),
         );
 
         app.observe(handle_save_request)
             .observe(handle_load_request)
             .observe(handle_copy_request)
-            .observe(handle_paste_request);
+            .observe(handle_paste_request)
+            .observe(handle_exit_request);
 
         app.world_mut().spawn(WorkingFilename(None));
     }
@@ -169,16 +182,15 @@ pub fn handle_save_request(
         .node_weights()
         .map(|node| {
             let kind = match &node.kind {
-                GraphNodeKind::Example(example_node) => SerializableGraphNodeKind::from(example_node),
+                GraphNodeKind::Example(example_node) => {
+                    SerializableGraphNodeKind::from(example_node)
+                }
                 GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
             };
 
             let position = q_node_display.get(node.kind.entity()).unwrap().translation;
 
-            SerializableGraphNode {
-                kind,
-                position,
-            }
+            SerializableGraphNode { kind, position }
         })
         .collect();
 
@@ -276,7 +288,7 @@ fn file_load_complete(
                         node: loaded_node.clone(),
                     }));
                 }
-                
+
                 for sedge in &save_file.edges {
                     if let (Some(&new_start), Some(&new_end)) = (
                         entity_map.get(&sedge.from_node),
@@ -287,14 +299,13 @@ fn file_load_complete(
                             to_node: new_end,
                             ..sedge.clone()
                         };
-                        
+
                         commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                             edge: new_edge,
                         }));
                     }
                 }
-
-            },
+            }
             Err(err) => println!("file not loaded because {}", err),
         }
     }
@@ -349,7 +360,9 @@ fn handle_copy_request(
 
     for edge in graph.edge_references() {
         let edge_data = edge.weight();
-        if selected_entities.contains(&edge_data.from_node) || selected_entities.contains(&edge_data.to_node) {
+        if selected_entities.contains(&edge_data.from_node)
+            || selected_entities.contains(&edge_data.to_node)
+        {
             copy_data.edges.push(SerializableEdge::from(edge_data));
         }
     }
@@ -368,13 +381,13 @@ fn handle_paste_request(
     if let Some(serialized) = &clipboard.0 {
         if let Ok(copy_data) = rmp_serde::from_slice::<CopyData>(serialized) {
             let mut entity_map: HashMap<Entity, Entity> = HashMap::new();
-            
-            // Calculate the center of copied nodes
-            let center = copy_data.nodes.iter()
+
+            let center = copy_data
+                .nodes
+                .iter()
                 .fold(Vec2::ZERO, |acc, node| acc + node.position.truncate())
                 / copy_data.nodes.len() as f32;
 
-            // Determine paste position
             let paste_position = match trigger.event() {
                 PasteEvent::FromCursor(pos) => *pos,
                 PasteEvent::FromMenu => {
@@ -413,49 +426,80 @@ fn handle_paste_request(
                         to_node: new_end,
                         ..edge.clone()
                     };
-                    
+
                     commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                         edge: new_edge,
                     }));
                 }
 
-                match (entity_map.get(&edge.from_node), entity_map.get(&edge.to_node)) {
+                let new_edge = match (
+                    entity_map.get(&edge.from_node),
+                    entity_map.get(&edge.to_node),
+                ) {
                     (None, None) => {
-                        println!("Tried to paste an edge that wasn't valid in this world or its own.")
-                    }, 
+                        println!(
+                            "Tried to paste an edge that wasn't valid in this world or its own."
+                        );
+                        continue;
+                    }
                     (None, Some(&new_end)) => {
-                        let new_edge = SerializableEdge {
+                        // partial edge in the paste, try connecting it to a node from the world it was copied from
+                        SerializableEdge {
                             from_node: edge.from_node,
                             to_node: new_end,
                             ..edge.clone()
-                        };
-                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                            edge: new_edge,
-                        }));
-                    },
-                    (Some(&new_start), None) => {
-                        let new_edge = SerializableEdge {
-                            from_node: new_start,
-                            to_node: edge.to_node,
-                            ..edge.clone()
-                        };
-                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                            edge: new_edge,
-                        }));
+                        }
+                    }
+                    (Some(&new_start), None) => SerializableEdge {
+                        from_node: new_start,
+                        to_node: edge.to_node,
+                        ..edge.clone()
                     },
                     (Some(&new_start), Some(&new_end)) => {
-                        let new_edge = SerializableEdge {
+                        // edge self-contained within the paste
+                        SerializableEdge {
                             from_node: new_start,
                             to_node: new_end,
                             ..edge.clone()
-                        };
-                        
-                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                            edge: new_edge,
-                        }));
-                    },
+                        }
+                    }
+                };
+
+                commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
+                    edge: new_edge,
+                }));
+            }
+        }
+    }
+}
+
+fn handle_exit_request(trigger: Trigger<ExitEvent>, mut exit: EventWriter<AppExit>) {
+    exit.send(AppExit::Success);
+}
+
+fn handle_copy_paste_input(
+    mut commands: Commands,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+) {
+    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight) {
+        if keyboard_input.just_pressed(KeyCode::KeyC) {
+            commands.trigger(CopyEvent);
+        }
+
+        if keyboard_input.just_pressed(KeyCode::KeyV) {
+            if let Ok(window) = window_query.get_single() {
+                if let Some(cursor_position) = window.cursor_position() {
+                    if let Ok((camera, camera_transform)) = camera_query.get_single() {
+                        if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position) {
+                            let cursor_world_position = cursor_world_position.origin.truncate();
+                            commands.trigger(PasteEvent::FromCursor(cursor_world_position));
+                        }
+                    }
                 }
             }
         }
+
     }
 }

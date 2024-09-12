@@ -1,3 +1,5 @@
+use std::hash::Hasher;
+
 use bevy::{
     color::palettes::tailwind::{SLATE_800},
     prelude::*,
@@ -105,7 +107,7 @@ pub struct NodeDisplayMaterial {
 
     pub default_border_color: LinearRgba,
     pub hover_border_color: LinearRgba,
-    pub focus_border_color: LinearRgba,
+    pub selected_border_color: LinearRgba,
 }
 
 impl Material2d for NodeDisplayMaterial {
@@ -124,6 +126,42 @@ pub struct PortMaterial {
     pub outline_thickness: f32,
     #[uniform(3)]
     pub is_hovered: f32, // Using f32 as a boolean (0.0 or 1.0)
+}
+
+impl PartialEq for PortMaterial {
+    fn eq(&self, other: &Self) -> bool {
+        let self_string = format!(
+            "{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}",
+            self.port_color.red, self.port_color.green, self.port_color.blue, self.port_color.alpha,
+            self.outline_color.red, self.outline_color.green, self.outline_color.blue, self.outline_color.alpha,
+            self.outline_thickness
+        );
+
+        let other_string = format!(
+            "{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}",
+            other.port_color.red, other.port_color.green, other.port_color.blue, other.port_color.alpha,
+            other.outline_color.red, other.outline_color.green, other.outline_color.blue, other.outline_color.alpha,
+            other.outline_thickness
+        );
+
+        self_string == other_string && self.is_hovered.to_bits() == other.is_hovered.to_bits()
+    }
+}
+
+impl Eq for PortMaterial {}
+
+impl std::hash::Hash for PortMaterial {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let hash_string = format!(
+            "{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}{:.4}",
+            self.port_color.red, self.port_color.green, self.port_color.blue, self.port_color.alpha,
+            self.outline_color.red, self.outline_color.green, self.outline_color.blue, self.outline_color.alpha,
+            self.outline_thickness
+        );
+
+        hash_string.hash(state);
+        self.is_hovered.to_bits().hash(state); // Can directly hash the bits of the float
+    }
 }
 
 impl Material2d for PortMaterial {

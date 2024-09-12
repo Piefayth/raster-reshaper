@@ -1,4 +1,4 @@
-use bevy::{app::App, prelude::*, DefaultPlugins};
+use bevy::{app::App, diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin}, prelude::*, DefaultPlugins};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_picking::{debug::DebugPickingMode, DefaultPickingPlugins};
 use line_renderer::LineRenderingPlugin;
@@ -23,6 +23,8 @@ fn main() {
         .add_plugins(camera::CameraPlugin)
         .add_plugins(events::EventsPlugin)
         .add_plugins(LineRenderingPlugin)
+        // .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        // .add_plugins(LogDiagnosticsPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
         .add_plugins(DefaultPickingPlugins)
         //.insert_resource(DebugPickingMode::Normal)

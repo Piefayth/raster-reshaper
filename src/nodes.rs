@@ -495,10 +495,10 @@ fn update_node_border(
         Option<&Selected>,
     )>,
 ) {
-    for (material_handle, interaction, focused) in query.iter() {
+    for (material_handle, interaction, selected) in query.iter() {
         if let Some(material) = materials.get_mut(material_handle) {
-            if focused.is_some() {
-                material.border_color = material.focus_border_color;
+            if selected.is_some() {
+                material.border_color = material.selected_border_color;
             } else {
                 match interaction {
                     PickingInteraction::Hovered => {
