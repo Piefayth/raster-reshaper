@@ -489,8 +489,16 @@ pub struct NewProjectEvent;
 
 pub fn handle_new_project_event(
     trigger: Trigger<NewProjectEvent>,
+    mut commands: Commands,
+    mut q_pipeline: Query<(&mut DisjointPipelineGraph)>,
 ) {
-    println!("NEW!!!");
+    let graph = &q_pipeline.single_mut().graph;
+
+    for (_, node) in graph.node_references() {
+        commands.trigger(RemoveNodeEvent {
+            node_entity: node.kind.entity(),
+        });
+    }
 }
 
 fn handle_copy_paste_input(
