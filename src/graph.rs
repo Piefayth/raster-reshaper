@@ -15,6 +15,7 @@ use petgraph::{
     graph::NodeIndex, matrix_graph::Zero, prelude::StableDiGraph, visit::EdgeRef, Direction,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub struct GraphPlugin;
 
@@ -65,18 +66,18 @@ pub struct Edge {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SerializableEdge {
-    pub from_node: Entity,
+    pub from_node_id: Uuid,
     pub from_field: SerializableOutputId,
-    pub to_node: Entity,
+    pub to_node_id: Uuid,
     pub to_field: SerializableInputId,
 }
 
-impl From<&Edge> for SerializableEdge {
-    fn from(edge: &Edge) -> Self {
+impl SerializableEdge {
+    pub fn from_edge(edge: &Edge, from_node_id: Uuid, to_node_id: Uuid,) -> Self {
         SerializableEdge {
-            from_node: edge.from_node,
+            from_node_id,
             from_field: SerializableOutputId(edge.from_field.0.to_string(), edge.from_field.1.to_string()),
-            to_node: edge.to_node,
+            to_node_id,
             to_field: SerializableInputId(edge.to_field.0.to_string(), edge.to_field.1.to_string()),
         }
     }
@@ -97,11 +98,11 @@ impl Edge {
                 SerializableInputId(input_id.0.to_string(), input_id.1.to_string()) == serialized.to_field
             )
             .expect("Serialized to_field not found in to_node");
-
+        
         Edge {
-            from_node: serialized.from_node,
+            from_node: from_node.entity(),
             from_field: *from_field,
-            to_node: serialized.to_node,
+            to_node: to_node.entity(),
             to_field: *to_field,
         }
     }

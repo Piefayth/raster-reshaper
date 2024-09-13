@@ -2,6 +2,7 @@ use bevy::{app::App, diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlug
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_picking::{debug::DebugPickingMode, DefaultPickingPlugins};
 use line_renderer::LineRenderingPlugin;
+use uuid::Uuid;
 
 mod asset;
 mod graph;

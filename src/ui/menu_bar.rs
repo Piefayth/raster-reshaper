@@ -1,6 +1,15 @@
 use std::io::Cursor;
 
-use bevy::{color::palettes::{css::BLACK, tailwind::{SLATE_400, SLATE_500, SLATE_600, SLATE_700, SLATE_800, SLATE_900}}, math::VectorSpace, prelude::*, utils::hashbrown::HashMap, window::PrimaryWindow};
+use bevy::{
+    color::palettes::{
+        css::BLACK,
+        tailwind::{SLATE_400, SLATE_500, SLATE_600, SLATE_700, SLATE_800, SLATE_900},
+    },
+    math::VectorSpace,
+    prelude::*,
+    utils::hashbrown::HashMap,
+    window::PrimaryWindow,
+};
 use bevy_file_dialog::{DialogFileLoaded, DialogFileSaved, FileDialogExt, FileDialogPlugin};
 use bevy_mod_picking::{
     events::{Down, Out, Over, Pointer, Up},
@@ -10,6 +19,7 @@ use bevy_mod_picking::{
 use petgraph::visit::{IntoEdgeReferences, IntoNodeReferences};
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     camera::MainCamera,
@@ -21,16 +31,15 @@ use crate::{
     nodes::{
         fields::{Field, FieldMeta},
         kinds::{color::SerializableColorNode, example::SerializableExampleNode},
-        GraphNodeKind, InputId, NodeDisplay, NodeTrait, RequestSpawnNodeKind, Selected,
-        SerializableGraphNode, SerializableGraphNodeKind, SerializableInputId,
+        GraphNodeKind, InputId, NodeDisplay, NodeId, NodeIdMapping, NodeTrait,
+        RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind,
+        SerializableInputId,
     },
     ApplicationState,
 };
 
 use super::{
-    context_menu::{
-        ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext,
-    },
+    context_menu::{ContextMenuPositionSource, MenuBarContext, RequestOpenContextMenu, UIContext},
     Spawner,
 };
 
@@ -45,7 +54,12 @@ impl Plugin for MenuBarPlugin {
         );
         app.add_systems(
             Update,
-            (file_save_complete, file_load_complete, handle_copy_paste_input).run_if(in_state(ApplicationState::MainLoop)),
+            (
+                file_save_complete,
+                file_load_complete,
+                handle_copy_paste_input,
+            )
+                .run_if(in_state(ApplicationState::MainLoop)),
         );
 
         app.observe(handle_save_request)
@@ -55,7 +69,10 @@ impl Plugin for MenuBarPlugin {
             .observe(handle_exit_request)
             .observe(handle_new_project_event);
 
-        app.world_mut().spawn(WorkingFilename(None));
+        app.insert_resource(Project {
+            id: Uuid::new_v4(),
+            working_filename: String::from("new_project"),
+        });
     }
 }
 
@@ -164,22 +181,27 @@ pub struct LoadEvent;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct SaveFile {
-    version: u32,
+    // TODO: Version enum
+    project_id: Uuid,
     nodes: Vec<SerializableGraphNode>,
     edges: Vec<SerializableEdge>,
 }
 
-#[derive(Component, Clone, Deref, DerefMut)]
-pub struct WorkingFilename(Option<String>);
-
 pub fn handle_save_request(
     trigger: Trigger<SaveEvent>,
     q_graph: Query<&DisjointPipelineGraph>,
-    q_working_filename: Query<&WorkingFilename>,
-    q_node_display: Query<&Transform, With<NodeDisplay>>,
+    q_node_display: Query<(&Transform, &NodeDisplay, &NodeId)>,
     mut commands: Commands,
+    node_id_map: Res<NodeIdMapping>,
+    project: Res<Project>,
 ) {
     let graph = &q_graph.single().graph;
+
+    let id_to_node = &node_id_map.0;
+    let node_to_id: HashMap<Entity, Uuid> = id_to_node
+        .iter()
+        .map(|(uuid, entity)| (*entity, *uuid))
+        .collect();
 
     let nodes: Vec<SerializableGraphNode> = graph
         .node_weights()
@@ -191,29 +213,36 @@ pub fn handle_save_request(
                 GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
             };
 
-            let position = q_node_display.get(node.kind.entity()).unwrap().translation;
+            let (transform, node_display, node_id) =
+                q_node_display.get(node.kind.entity()).unwrap();
 
-            SerializableGraphNode { kind, position }
+            SerializableGraphNode {
+                id: node_id.0,
+                kind,
+                position: transform.translation,
+            }
         })
         .collect();
 
     let edges: Vec<SerializableEdge> = graph
         .edge_weights()
-        .map(|edge| SerializableEdge::from(edge))
+        .map(|edge| {
+            SerializableEdge::from_edge(
+                edge,
+                *node_to_id.get(&edge.from_node).unwrap(),
+                *node_to_id.get(&edge.to_node).unwrap(),
+            )
+        })
         .collect();
 
     let save_file = &SaveFile {
-        version: 2,
+        project_id: project.id,
         nodes,
         edges,
     };
 
     let maybe_serialized = rmp_serde::to_vec(save_file);
-    let working_file_name: &Option<String> = &q_working_filename.single().0;
-    let file_name = match working_file_name {
-        Some(name) => name,
-        None => &String::from("new_project"),
-    };
+    let file_name: &String = &project.working_filename;
 
     match maybe_serialized {
         Ok(serialized) => {
@@ -229,15 +258,13 @@ pub fn handle_save_request(
 
 fn file_save_complete(
     mut ev_saved: EventReader<DialogFileSaved<SaveFile>>,
-    mut q_working_filename: Query<&mut WorkingFilename>,
+    mut project: ResMut<Project>,
 ) {
     for ev in ev_saved.read() {
         match ev.result {
             Ok(_) => {
                 eprintln!("File {} successfully saved", ev.file_name);
-                if let Ok(mut working_filename) = q_working_filename.get_single_mut() {
-                    working_filename.0 = Some(ev.file_name.clone());
-                }
+                project.working_filename = ev.file_name.clone();
             }
             Err(ref err) => eprintln!("Failed to save {}: {}", ev.file_name, err),
         }
@@ -247,15 +274,11 @@ fn file_save_complete(
 pub fn handle_load_request(
     trigger: Trigger<LoadEvent>,
     mut commands: Commands,
-    q_working_filename: Query<&WorkingFilename>,
+    project: Res<Project>,
 ) {
     let mut builder = commands.dialog();
 
-    if let Ok(working_filename) = q_working_filename.get_single() {
-        if let Some(file_name) = &working_filename.0 {
-            builder = builder.set_file_name(file_name);
-        }
-    }
+    builder = builder.set_file_name(project.working_filename.clone());
 
     builder.load_file::<SaveFile>();
 }
@@ -264,6 +287,7 @@ fn file_load_complete(
     mut commands: Commands,
     mut ev_loaded: EventReader<DialogFileLoaded<SaveFile>>,
     mut q_pipeline: Query<(&mut DisjointPipelineGraph)>,
+    mut project: ResMut<Project>,
 ) {
     let graph = &q_pipeline.single_mut().graph;
 
@@ -271,6 +295,7 @@ fn file_load_complete(
         let maybe_deserialized = rmp_serde::from_slice::<SaveFile>(&ev.contents);
         match maybe_deserialized {
             Ok(save_file) => {
+                project.id = save_file.project_id.clone();
 
                 for (_, node) in graph.node_references() {
                     commands.trigger(RemoveNodeEvent {
@@ -279,11 +304,11 @@ fn file_load_complete(
                 }
 
                 // old -> new
-                let mut entity_map: HashMap<Entity, Entity> = HashMap::new();
+                let mut entity_map: HashMap<Uuid, Entity> = HashMap::new();
                 for loaded_node in &save_file.nodes {
                     let new_entity = commands.spawn_empty().id();
 
-                    entity_map.insert(loaded_node.entity(), new_entity);
+                    entity_map.insert(loaded_node.id, new_entity);
 
                     commands.trigger(AddNodeEvent::FromSerialized(AddSerializedNode {
                         node_entity: new_entity,
@@ -291,19 +316,14 @@ fn file_load_complete(
                     }));
                 }
 
-                for sedge in &save_file.edges {
+                for edge in &save_file.edges {
                     if let (Some(&new_start), Some(&new_end)) = (
-                        entity_map.get(&sedge.from_node),
-                        entity_map.get(&sedge.to_node),
+                        // do we actually need this check?
+                        entity_map.get(&edge.from_node_id),
+                        entity_map.get(&edge.to_node_id),
                     ) {
-                        let new_edge = SerializableEdge {
-                            from_node: new_start,
-                            to_node: new_end,
-                            ..sedge.clone()
-                        };
-
                         commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                            edge: new_edge,
+                            edge: edge.clone(),
                         }));
                     }
                 }
@@ -322,8 +342,15 @@ pub enum PasteEvent {
     FromMenu,
 }
 
+#[derive(Resource)]
+pub struct Project {
+    id: Uuid,
+    working_filename: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct CopyData {
+    source_project_id: Uuid,
     nodes: Vec<SerializableGraphNode>,
     edges: Vec<SerializableEdge>,
 }
@@ -335,21 +362,31 @@ fn handle_copy_request(
     trigger: Trigger<CopyEvent>,
     mut commands: Commands,
     q_pipeline: Query<&DisjointPipelineGraph>,
-    q_selected: Query<(Entity, &NodeDisplay), With<Selected>>,
-    q_transform: Query<&Transform>,
+    q_selected: Query<(Entity, &NodeDisplay, &NodeId), With<Selected>>,
+    q_nodes: Query<(&NodeDisplay, &Transform)>,
+    project: Res<Project>,
+    node_id_map: Res<NodeIdMapping>,
 ) {
+    let id_to_node = &node_id_map.0;
+    let node_to_id: HashMap<Entity, Uuid> = id_to_node
+        .iter()
+        .map(|(uuid, entity)| (*entity, *uuid))
+        .collect();
+
     let graph = &q_pipeline.single().graph;
     let mut copy_data = CopyData {
+        source_project_id: project.id,
         nodes: Vec::new(),
         edges: Vec::new(),
     };
 
-    let selected_entities: Vec<Entity> = q_selected.iter().map(|(e, _)| e).collect();
+    let selected_entities: Vec<Entity> = q_selected.iter().map(|(e, _, _)| e).collect();
 
-    for (entity, node_display) in q_selected.iter() {
+    for (entity, node_display, node_id) in q_selected.iter() {
         if let Some(node) = graph.node_weight(node_display.index) {
-            let transform = q_transform.get(entity).unwrap();
+            let (node_display, transform) = q_nodes.get(entity).unwrap();
             let serializable_node = SerializableGraphNode {
+                id: node_id.0,
                 position: transform.translation,
                 kind: match &node.kind {
                     GraphNodeKind::Example(ex) => SerializableGraphNodeKind::from(ex),
@@ -365,7 +402,11 @@ fn handle_copy_request(
         if selected_entities.contains(&edge_data.from_node)
             || selected_entities.contains(&edge_data.to_node)
         {
-            copy_data.edges.push(SerializableEdge::from(edge_data));
+            copy_data.edges.push(SerializableEdge::from_edge(
+                edge_data,
+                *node_to_id.get(&edge_data.from_node).unwrap(),
+                *node_to_id.get(&edge_data.to_node).unwrap(),
+            ));
         }
     }
 
@@ -382,6 +423,9 @@ fn handle_paste_request(
 ) {
     if let Some(serialized) = &clipboard.0 {
         if let Ok(copy_data) = rmp_serde::from_slice::<CopyData>(serialized) {
+            // do we need a guid map too? sigh
+            // confuse
+            // bc edges are still based on an entity mapping
             let mut entity_map: HashMap<Entity, Entity> = HashMap::new();
 
             let center = copy_data
@@ -419,21 +463,6 @@ fn handle_paste_request(
             }
 
             for edge in &copy_data.edges {
-                if let (Some(&new_start), Some(&new_end)) = (
-                    entity_map.get(&edge.from_node),
-                    entity_map.get(&edge.to_node),
-                ) {
-                    let new_edge = SerializableEdge {
-                        from_node: new_start,
-                        to_node: new_end,
-                        ..edge.clone()
-                    };
-
-                    commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                        edge: new_edge,
-                    }));
-                }
-
                 let new_edge = match (
                     entity_map.get(&edge.from_node),
                     entity_map.get(&edge.to_node),
@@ -446,6 +475,7 @@ fn handle_paste_request(
                     }
                     (None, Some(&new_end)) => {
                         // partial edge in the paste, try connecting it to a node from the world it was copied from
+                        // what happens if "from_node" is valid in a different pasted world, but is not the same node?
                         SerializableEdge {
                             from_node: edge.from_node,
                             to_node: new_end,
@@ -482,8 +512,6 @@ fn handle_exit_request(trigger: Trigger<ExitEvent>, mut exit: EventWriter<AppExi
     exit.send(AppExit::Success);
 }
 
-
-
 #[derive(Event, Clone)]
 pub struct NewProjectEvent;
 
@@ -491,8 +519,12 @@ pub fn handle_new_project_event(
     trigger: Trigger<NewProjectEvent>,
     mut commands: Commands,
     mut q_pipeline: Query<(&mut DisjointPipelineGraph)>,
+    mut project: ResMut<Project>,
 ) {
     let graph = &q_pipeline.single_mut().graph;
+
+    project.id = Uuid::new_v4();
+    project.working_filename = String::from("new_project");
 
     for (_, node) in graph.node_references() {
         commands.trigger(RemoveNodeEvent {
@@ -507,7 +539,8 @@ fn handle_copy_paste_input(
     window_query: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
 ) {
-    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight) {
+    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight)
+    {
         if keyboard_input.just_pressed(KeyCode::KeyC) {
             commands.trigger(CopyEvent);
         }
@@ -516,7 +549,9 @@ fn handle_copy_paste_input(
             if let Ok(window) = window_query.get_single() {
                 if let Some(cursor_position) = window.cursor_position() {
                     if let Ok((camera, camera_transform)) = camera_query.get_single() {
-                        if let Some(cursor_world_position) = camera.viewport_to_world(camera_transform, cursor_position) {
+                        if let Some(cursor_world_position) =
+                            camera.viewport_to_world(camera_transform, cursor_position)
+                        {
                             let cursor_world_position = cursor_world_position.origin.truncate();
                             commands.trigger(PasteEvent::FromCursor(cursor_world_position));
                         }
@@ -524,6 +559,5 @@ fn handle_copy_paste_input(
                 }
             }
         }
-
     }
 }

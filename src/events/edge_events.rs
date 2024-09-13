@@ -7,9 +7,7 @@ use crate::{
     },
     line_renderer::{generate_color_gradient, generate_curved_line, Line},
     nodes::{
-        fields::FieldMeta,
-        ports::{port_color, InputPort, OutputPort},
-        EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId,
+        fields::FieldMeta, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeIdMapping, NodeTrait, OutputId
     },
 };
 
@@ -44,17 +42,18 @@ pub fn add_edge(
     q_input_ports: Query<(Entity, &GlobalTransform, &InputPort)>,
     q_output_ports: Query<(Entity, &GlobalTransform, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+    node_id_map: Res<NodeIdMapping>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
     let event = match trigger.event() {
         AddEdgeEvent::FromNodes(ev) => ev,
         AddEdgeEvent::FromSerialized(ev) => {
-            let (from_node_display, _) = q_nodes
-                .get(ev.edge.from_node)
+            let (from_node_display, _) = q_nodes    // caller responsible for guaranteeing they made they node entities
+                .get(*node_id_map.0.get(&ev.edge.from_node_id).unwrap())
                 .expect("Forgot to assign Edge's from_node to an Entity from this world.");
             let (to_node_display, _) = q_nodes
-                .get(ev.edge.to_node)
+                .get(*node_id_map.0.get(&ev.edge.to_node_id).unwrap())
                 .expect("Forgot to assign Edge's from_node to an Entity from this world.");
             let from_node = pipeline
                 .graph
