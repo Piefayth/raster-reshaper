@@ -79,8 +79,6 @@ pub fn add_edge(
         }
     };
 
-    println!("tried to make edge {:?}", event);
-
     let (start_node, start_node_children) = q_nodes.get(event.start_node).unwrap();
     let (end_node, end_node_children) = q_nodes.get(event.end_node).unwrap();
 

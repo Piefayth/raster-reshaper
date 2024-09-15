@@ -51,7 +51,7 @@ pub struct CustomGpuDevice(RenderDevice);
 #[derive(Resource, Deref, Clone)]
 pub struct CustomGpuQueue(RenderQueue);
 
-fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
+fn setup_device_and_queue(mut commands: Commands, bevy_render_device: Res<RenderDevice>, adapter: Res<RenderAdapter>) {
     let (device, queue) = block_on(async {
         adapter
             .request_device(
@@ -62,7 +62,7 @@ fn setup_device_and_queue(mut commands: Commands, adapter: Res<RenderAdapter>) {
                     required_limits: if cfg!(target_arch = "wasm32") {
                         Limits::downlevel_webgl2_defaults()
                     } else {
-                        Limits::default()
+                        bevy_render_device.limits().clone()
                     },
                 },
                 None,

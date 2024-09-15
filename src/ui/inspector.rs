@@ -340,7 +340,8 @@ fn trigger_inspector_updates(
                         }
                         Field::Extent3d(_) => {}
                         Field::TextureFormat(_) => {}
-                        Field::Image(_) => {}
+                        Field::Image(_) => {},
+                        Field::Shape(_) => {}
                     };
                 }
             }

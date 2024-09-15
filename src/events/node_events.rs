@@ -6,7 +6,7 @@ use crate::{
     },
     graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline},
     nodes::{
-        kinds::{color::ColorNode, example::ExampleNode}, node_kind_name, ports::{InputPort, OutputPort, PortMaterialIndex, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeId, NodeIdMapping, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind
+        kinds::{blend::BlendNode, color::ColorNode, example::ExampleNode, shape::{Shape, ShapeNode}}, node_kind_name, ports::{InputPort, OutputPort, PortMaterialIndex, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeId, NodeIdMapping, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind
     },
     setup::{CustomGpuDevice, CustomGpuQueue},
     ui::context_menu::UIContext,
@@ -65,9 +65,6 @@ pub fn remove_node(
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
-        // but nooo we both need the id and fuck ourselves by saving the id maybe?
-        // because you can copy a node, delete it, then paste it
-        // which tries to make connections to deleted nodes
         commands
             .entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
@@ -198,21 +195,39 @@ pub fn add_node(
                         TextureFormat::Rgba8Unorm,
                     );
         
-                    let index = pipeline.graph.add_node(GraphNode {
+                    pipeline.graph.add_node(GraphNode {
                         kind: GraphNodeKind::Example(example_node),
                         last_process_time: Duration::ZERO,
-                    });
-
-                    index
+                    })
                 }
                 RequestSpawnNodeKind::Color => {
                     let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-                    let index = pipeline.graph.add_node(GraphNode {
+                    pipeline.graph.add_node(GraphNode {
                         kind: GraphNodeKind::Color(color_node),
                         last_process_time: Duration::ZERO,
-                    });
+                    })
+                },
+                RequestSpawnNodeKind::Shape => {
+                    let shape_shader = shader_source(&shaders, &shader_handles.shape);
+                    let shape_node = match node_count.0 % 2 {
+                        0 => ShapeNode::new(node_entity, Shape::Triangle(200.0, 200.0), 512u32, &render_device, &render_queue, &shape_shader),
+                        1 => ShapeNode::new(node_entity, Shape::Circle(100.0), 512u32, &render_device, &render_queue, &shape_shader),
+                        _ => panic!("am i bad at math?")
+                    };
 
-                    index
+                    pipeline.graph.add_node(GraphNode {
+                        kind: GraphNodeKind::Shape(shape_node),
+                        last_process_time: Duration::ZERO,
+                    })
+                },
+                RequestSpawnNodeKind::Blend => {
+                    let blend_shader = shader_source(&shaders, &shader_handles.blend);
+                    let blend_node = BlendNode::new(node_entity, &render_device, &render_queue, &blend_shader);
+
+                    pipeline.graph.add_node(GraphNode {
+                        kind: GraphNodeKind::Blend(blend_node),
+                        last_process_time: Duration::ZERO,
+                    })
                 }
             }
         },
@@ -233,6 +248,24 @@ pub fn add_node(
                         last_process_time: Duration::ZERO,
                         kind: GraphNodeKind::Color(
                             ColorNode::from_serializable(sc)
+                        )
+                    })
+                },
+                SerializableGraphNodeKind::Shape(ss) => {
+                    let shape_shader = shader_source(&shaders, &shader_handles.shape);
+                    pipeline.graph.add_node(GraphNode {
+                        last_process_time: Duration::ZERO,
+                        kind: GraphNodeKind::Shape(
+                            ShapeNode::from_serializable(ss, &render_device, &&render_queue, &shape_shader)
+                        )
+                    })
+                }
+                SerializableGraphNodeKind::Blend(bs) => {
+                    let blend_shader = shader_source(&shaders, &shader_handles.blend);
+                    pipeline.graph.add_node(GraphNode {
+                        last_process_time: Duration::ZERO,
+                        kind: GraphNodeKind::Blend(
+                            BlendNode::from_serializable(bs, &render_device, &&render_queue, &blend_shader)
                         )
                     })
                 },

@@ -211,6 +211,8 @@ pub fn handle_save_request(
                     SerializableGraphNodeKind::from(example_node)
                 }
                 GraphNodeKind::Color(color_node) => SerializableGraphNodeKind::from(color_node),
+                GraphNodeKind::Shape(shape_node) => SerializableGraphNodeKind::from(shape_node),
+                GraphNodeKind::Blend(blend_node) => SerializableGraphNodeKind::from(blend_node),
             };
 
             let (transform, node_display, node_id) =
@@ -394,6 +396,8 @@ fn handle_copy_request(
                 kind: match &node.kind {
                     GraphNodeKind::Example(ex) => SerializableGraphNodeKind::from(ex),
                     GraphNodeKind::Color(color) => SerializableGraphNodeKind::from(color),
+                    GraphNodeKind::Shape(shape) => SerializableGraphNodeKind::from(shape),
+                    GraphNodeKind::Blend(blend) => SerializableGraphNodeKind::from(blend),
                 },
             };
             copy_data.nodes.push(serializable_node);
@@ -485,10 +489,6 @@ fn handle_paste_request(
                     },
                     (Some(_), None) => {    // if the "from" node exists in the paste, but not the "to" node, we reuse the "to" node that exists in this world (if it does)
                         if id_to_node.contains_key(&edge.to_node_id) {
-                            // FROM the new pasted node
-                            // TO maybe a node that exists in the world
-                                // Which we check in the if statement above
-
                             commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                                 edge: SerializableEdge {
                                     from_node_id: *pasted_guid_map.get(&edge.from_node_id).unwrap(),

@@ -89,6 +89,10 @@ pub struct ShaderAssets {
     pub node_display: Handle<Shader>,
     #[asset(path = "shaders/port.wgsl")]
     pub port: Handle<Shader>,
+    #[asset(path="shaders/shape.wgsl")]
+    pub shape: Handle<Shader>,
+    #[asset(path="shaders/blend.wgsl")]
+    pub blend: Handle<Shader>,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
