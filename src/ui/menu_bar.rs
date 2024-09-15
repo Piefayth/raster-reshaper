@@ -304,14 +304,14 @@ fn file_load_complete(
                 }
 
                 // old -> new
-                let mut entity_map: HashMap<Uuid, Entity> = HashMap::new();
+                let mut uuid_map: HashMap<Uuid, Uuid> = HashMap::new();
                 for loaded_node in &save_file.nodes {
-                    let new_entity = commands.spawn_empty().id();
+                    let new_uuid = Uuid::new_v4();
 
-                    entity_map.insert(loaded_node.id, new_entity);
+                    uuid_map.insert(loaded_node.id, new_uuid);
 
                     commands.trigger(AddNodeEvent::FromSerialized(AddSerializedNode {
-                        node_entity: new_entity,
+                        node_id: new_uuid,
                         node: loaded_node.clone(),
                     }));
                 }
@@ -319,11 +319,15 @@ fn file_load_complete(
                 for edge in &save_file.edges {
                     if let (Some(&new_start), Some(&new_end)) = (
                         // do we actually need this check?
-                        entity_map.get(&edge.from_node_id),
-                        entity_map.get(&edge.to_node_id),
+                        uuid_map.get(&edge.from_node_id),
+                        uuid_map.get(&edge.to_node_id),
                     ) {
                         commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                            edge: edge.clone(),
+                            edge: SerializableEdge {
+                                from_node_id: new_start,
+                                to_node_id: new_end,
+                                ..edge.clone()
+                            },
                         }));
                     }
                 }
@@ -420,14 +424,16 @@ fn handle_paste_request(
     mut commands: Commands,
     clipboard: Res<Clipboard>,
     camera_query: Query<(&Transform, &OrthographicProjection), With<MainCamera>>,
+    node_id_map: Res<NodeIdMapping>,
 ) {
+    let id_to_node = &node_id_map.0;
+    let node_to_id: HashMap<Entity, Uuid> = id_to_node
+        .iter()
+        .map(|(uuid, entity)| (*entity, *uuid))
+        .collect();
+    
     if let Some(serialized) = &clipboard.0 {
         if let Ok(copy_data) = rmp_serde::from_slice::<CopyData>(serialized) {
-            // do we need a guid map too? sigh
-            // confuse
-            // bc edges are still based on an entity mapping
-            let mut entity_map: HashMap<Entity, Entity> = HashMap::new();
-
             let center = copy_data
                 .nodes
                 .iter()
@@ -445,61 +451,75 @@ fn handle_paste_request(
                 }
             };
 
-            for node in copy_data.nodes {
-                let new_entity = commands.spawn_empty().id();
-                entity_map.insert(node.entity(), new_entity);
-
-                let node_offset = node.position.truncate() - center;
+            // map from the pasted guid to the nuid guide
+            let mut pasted_guid_map: HashMap<Uuid, Uuid> = HashMap::new();
+            for pasted_node in copy_data.nodes {
+                let node_offset = pasted_node.position.truncate() - center;
                 let new_position = paste_position + node_offset;
                 let new_node = SerializableGraphNode {
-                    position: new_position.extend(node.position.z),
-                    ..node
+                    position: new_position.extend(pasted_node.position.z),
+                    ..pasted_node
                 };
 
+                
+                let new_node_id = Uuid::new_v4();
+
+                pasted_guid_map.insert(pasted_node.id, new_node_id);
+
                 commands.trigger(AddNodeEvent::FromSerialized(AddSerializedNode {
-                    node_entity: new_entity,
+                    node_id: new_node_id,
                     node: new_node,
                 }));
             }
 
-            for edge in &copy_data.edges {
-                let new_edge = match (
-                    entity_map.get(&edge.from_node),
-                    entity_map.get(&edge.to_node),
-                ) {
-                    (None, None) => {
-                        println!(
-                            "Tried to paste an edge that wasn't valid in this world or its own."
-                        );
-                        continue;
-                    }
-                    (None, Some(&new_end)) => {
-                        // partial edge in the paste, try connecting it to a node from the world it was copied from
-                        // what happens if "from_node" is valid in a different pasted world, but is not the same node?
-                        SerializableEdge {
-                            from_node: edge.from_node,
-                            to_node: new_end,
-                            ..edge.clone()
-                        }
-                    }
-                    (Some(&new_start), None) => SerializableEdge {
-                        from_node: new_start,
-                        to_node: edge.to_node,
-                        ..edge.clone()
-                    },
-                    (Some(&new_start), Some(&new_end)) => {
-                        // edge self-contained within the paste
-                        SerializableEdge {
-                            from_node: new_start,
-                            to_node: new_end,
-                            ..edge.clone()
-                        }
-                    }
-                };
+            // ok so when we paste node A from our world that connects to node B
+            // we want to make a new node C, that also connects to B...
+            // but to create the C-B edge we need to know the guid up front
+            // the edges contain the data for C-B, but it will LOOK like the A-B edge because the guid was the same. 
+                // we can tell its not the same because the other guid was NOT IN THE PASTE
+            // so for each edge
+                // either
+                // it both sides were in the pasted data
+                // or only one side was
+                // the one that was NOT in the paste MIGHT not exist in the world
 
-                commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
-                    edge: new_edge,
-                }));
+            for edge in &copy_data.edges {
+                match ((pasted_guid_map.get(&edge.from_node_id), pasted_guid_map.get(&edge.to_node_id))) {
+                    (None, None) => {
+                        panic!("Requested paste of an edge that is not valid in this world or the copied world.")
+                    },
+                    (None, Some(_)) => {
+                        println!("HERE");
+                        if id_to_node.contains_key(&edge.from_node_id) {    // if the guid not in the paste exists in this world...
+                            commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
+                                edge: SerializableEdge {
+                                    to_node_id: *pasted_guid_map.get(&edge.to_node_id).unwrap(),
+                                    ..edge.clone()
+                                }
+                            }));
+                        }
+                    },
+                    (Some(_), None) => {    // if the guid not int he paste exists in this world
+                        if id_to_node.contains_key(&edge.to_node_id) {
+                            commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
+                                edge: SerializableEdge {
+                                    from_node_id: *pasted_guid_map.get(&edge.from_node_id).unwrap(),
+                                    ..edge.clone()
+                                }
+                            }));
+                        }
+                    },
+                    (Some(_), Some(_)) => { // both edge guids were present in the paste, so use both new guids
+                        commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
+                            edge: SerializableEdge {
+                                from_node_id: *pasted_guid_map.get(&edge.from_node_id).unwrap(),
+                                to_node_id: *pasted_guid_map.get(&edge.to_node_id).unwrap(),
+                                ..edge.clone()
+                            }
+                        }));
+                    },
+                }
+
             }
         }
     }

@@ -53,6 +53,7 @@ impl Plugin for NodePlugin {
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
 
+        app.insert_resource(NodeIdMapping(HashMap::new()));
         app.observe(update_nodes).observe(node_z_to_top);
     }
 }

@@ -49,12 +49,12 @@ pub fn add_edge(
     let event = match trigger.event() {
         AddEdgeEvent::FromNodes(ev) => ev,
         AddEdgeEvent::FromSerialized(ev) => {
-            let (from_node_display, _) = q_nodes    // caller responsible for guaranteeing they made they node entities
+            let (from_node_display, _) = q_nodes
                 .get(*node_id_map.0.get(&ev.edge.from_node_id).unwrap())
                 .expect("Forgot to assign Edge's from_node to an Entity from this world.");
             let (to_node_display, _) = q_nodes
                 .get(*node_id_map.0.get(&ev.edge.to_node_id).unwrap())
-                .expect("Forgot to assign Edge's from_node to an Entity from this world.");
+                .expect("Forgot to assign Edge's to_node to an Entity from this world.");
             let from_node = pipeline
                 .graph
                 .node_weight(from_node_display.index)
@@ -65,7 +65,6 @@ pub fn add_edge(
                 .expect("Forgot to add the serialized nodes to the graph?");
 
             let edge = Edge::from_serializable(&ev.edge, &from_node.kind, &to_node.kind);
-
             &AddNodeEdge {
                 start_node: edge.from_node,
                 start_id: edge.from_field,
@@ -74,6 +73,8 @@ pub fn add_edge(
             }
         }
     };
+
+    println!("tried to make edge {:?}", event);
 
     let (start_node, start_node_children) = q_nodes.get(event.start_node).unwrap();
     let (end_node, end_node_children) = q_nodes.get(event.end_node).unwrap();

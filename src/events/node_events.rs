@@ -94,7 +94,6 @@ pub fn remove_node_from_undo(
     q_edge_lines: Query<(Entity, &EdgeLine)>,
     q_input_ports: Query<(Entity, &InputPort)>,
     q_output_ports: Query<(Entity, &OutputPort)>,
-    mut node_id_map: ResMut<NodeIdMapping>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
@@ -142,7 +141,7 @@ pub struct AddNodeKind {
 
 #[derive(Clone)]
 pub struct AddSerializedNode {
-    pub node_entity: Entity,
+    pub node_id: Uuid,
     pub node: SerializableGraphNode
 }
 
@@ -178,15 +177,7 @@ pub fn add_node(
         process_time_text: Entity::PLACEHOLDER,
     };
 
-    let node_entity = match trigger.event() {
-        AddNodeEvent::FromKind(_) => {
-            commands.spawn(placeholder_node_display).id()
-        },
-        AddNodeEvent::FromSerialized(ev) => {
-            commands.entity(ev.node_entity).insert(placeholder_node_display);
-            ev.node_entity
-        },
-    };
+    let node_entity = commands.spawn(placeholder_node_display).id();
     
     let spawned_node_index = match trigger.event() {
         AddNodeEvent::FromKind(ev) => {
@@ -253,7 +244,13 @@ pub fn add_node(
     };
 
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
-    let node_id = Uuid::new_v4();
+    let node_id = match trigger.event() {
+        AddNodeEvent::FromSerialized(ev) => {
+            ev.node_id
+        },
+        _ => Uuid::new_v4()
+    };
+
     node_id_map.0.insert(node_id, node_entity);
     node.kind.store_all();
 
@@ -280,6 +277,8 @@ pub fn add_node(
         .id();
 
     commands.entity(node_entity).add_child(process_time_text);
+
+    println!("spawned node with id {:?}", node_id);
 
     commands
         .entity(node_entity)
