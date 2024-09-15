@@ -6,12 +6,7 @@ use crate::{
     },
     graph::{DisjointPipelineGraph, Edge, RequestProcessPipeline},
     nodes::{
-        kinds::{color::ColorNode, example::ExampleNode},
-        node_kind_name,
-        ports::{InputPort, OutputPort, PortMaterialIndex, RequestInputPortRelayout, RequestOutputPortRelayout},
-        shared::shader_source,
-        EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeProcessText, NodeTrait,
-        RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind,
+        kinds::{color::ColorNode, example::ExampleNode}, node_kind_name, ports::{InputPort, OutputPort, PortMaterialIndex, RequestInputPortRelayout, RequestOutputPortRelayout}, shared::shader_source, EdgeLine, GraphNode, GraphNodeKind, NodeCount, NodeDisplay, NodeId, NodeIdMapping, NodeProcessText, NodeTrait, RequestSpawnNodeKind, Selected, SerializableGraphNode, SerializableGraphNodeKind
     },
     setup::{CustomGpuDevice, CustomGpuQueue},
     ui::context_menu::UIContext,
@@ -25,6 +20,7 @@ use bevy::{
     sprite::{Anchor, MaterialMesh2dBundle},
 };
 use bevy_mod_picking::focus::PickingInteraction;
+use uuid::Uuid;
 use wgpu::TextureFormat;
 
 use super::{edge_events::RemoveEdgeEvent, UndoableEvent};
@@ -69,6 +65,9 @@ pub fn remove_node(
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
+        // but nooo we both need the id and fuck ourselves by saving the id maybe?
+        // because you can copy a node, delete it, then paste it
+        // which tries to make connections to deleted nodes
         commands
             .entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
@@ -145,7 +144,7 @@ pub struct AddNodeKind {
 
 #[derive(Clone)]
 pub struct AddSerializedNode {
-    pub node_entity: Entity,
+    pub node_id: Uuid,
     pub node: SerializableGraphNode
 }
 
@@ -164,6 +163,7 @@ pub fn add_node(
     meshes: Res<GeneratedMeshes>,
     mut node_count: ResMut<NodeCount>,
     fonts: Res<FontAssets>,
+    mut node_id_map: ResMut<NodeIdMapping>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
@@ -180,15 +180,7 @@ pub fn add_node(
         process_time_text: Entity::PLACEHOLDER,
     };
 
-    let node_entity = match trigger.event() {
-        AddNodeEvent::FromKind(_) => {
-            commands.spawn(placeholder_node_display).id()
-        },
-        AddNodeEvent::FromSerialized(ev) => {
-            commands.entity(ev.node_entity).insert(placeholder_node_display);
-            ev.node_entity
-        },
-    };
+    let node_entity = commands.spawn(placeholder_node_display).id();
     
     let spawned_node_index = match trigger.event() {
         AddNodeEvent::FromKind(ev) => {
@@ -206,17 +198,21 @@ pub fn add_node(
                         TextureFormat::Rgba8Unorm,
                     );
         
-                    pipeline.graph.add_node(GraphNode {
+                    let index = pipeline.graph.add_node(GraphNode {
                         kind: GraphNodeKind::Example(example_node),
                         last_process_time: Duration::ZERO,
-                    })
+                    });
+
+                    index
                 }
                 RequestSpawnNodeKind::Color => {
                     let color_node = ColorNode::new(node_entity, MAGENTA.into(), MAGENTA.into());
-                    pipeline.graph.add_node(GraphNode {
+                    let index = pipeline.graph.add_node(GraphNode {
                         kind: GraphNodeKind::Color(color_node),
                         last_process_time: Duration::ZERO,
-                    })
+                    });
+
+                    index
                 }
             }
         },
@@ -251,6 +247,14 @@ pub fn add_node(
     };
 
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
+    let node_id = match trigger.event() {
+        AddNodeEvent::FromSerialized(ev) => {
+            ev.node_id
+        },
+        _ => Uuid::new_v4()
+    };
+
+    node_id_map.0.insert(node_id, node_entity);
     node.kind.store_all();
 
     let process_time_text_margin_top = 26.;
@@ -277,12 +281,15 @@ pub fn add_node(
 
     commands.entity(node_entity).add_child(process_time_text);
 
+    println!("spawned node with id {:?}", node_id);
+
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
             index: spawned_node_index,
             process_time_text,
         })
+        .insert(NodeId(node_id))
         .insert(MaterialMesh2dBundle {
             transform: Transform::from_translation(world_position),
             mesh: meshes.node_display_quad.clone(),
@@ -397,15 +404,15 @@ pub fn add_node_from_undo(
     let mut pipeline = q_pipeline.single_mut();
 
     let node_entity = trigger.event().node_entity;
-
     let spawned_node_index = pipeline.graph.add_node(trigger.event().node.clone());
     let node = pipeline.graph.node_weight_mut(spawned_node_index).unwrap();
+
     node.kind.store_all();
 
     commands
         .entity(node_entity)
         .insert(NodeDisplay {
-            index: spawned_node_index,
+            index: spawned_node_index, // but index in the graph might be different
             process_time_text: *q_children
                 .get(node_entity)
                 .unwrap()

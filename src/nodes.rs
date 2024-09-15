@@ -34,6 +34,7 @@ use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::{graph::NodeIndex, visit::IntoNodeReferences};
 use ports::{InputPort, OutputPort, PortPlugin};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub struct NodePlugin;
 
@@ -52,6 +53,7 @@ impl Plugin for NodePlugin {
                 .run_if(in_state(ApplicationState::MainLoop)),
         );
 
+        app.insert_resource(NodeIdMapping(HashMap::new()));
         app.observe(update_nodes).observe(node_z_to_top);
     }
 }
@@ -61,6 +63,14 @@ pub struct NodeDisplay {
     pub index: NodeIndex,
     pub process_time_text: Entity,
 }
+
+// This is its own component so we can remove NodeDisplay without losing the entity ref
+// One day we will be able to disable entities and we wont have to do this!
+#[derive(Component)]
+pub struct NodeId(pub Uuid);
+
+#[derive(Resource)]
+pub struct NodeIdMapping(pub HashMap<Uuid, Entity>);
 
 #[derive(Deref, DerefMut, Resource)]
 pub struct NodeCount(pub u32);
@@ -125,6 +135,7 @@ pub enum SerializableGraphNodeKind {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SerializableGraphNode {
+    pub id: Uuid,
     pub position: Vec3,
     pub kind: SerializableGraphNodeKind,
 }

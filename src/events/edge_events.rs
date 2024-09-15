@@ -7,9 +7,7 @@ use crate::{
     },
     line_renderer::{generate_color_gradient, generate_curved_line, Line},
     nodes::{
-        fields::FieldMeta,
-        ports::{port_color, InputPort, OutputPort},
-        EdgeLine, InputId, NodeDisplay, NodeTrait, OutputId,
+        fields::FieldMeta, ports::{port_color, InputPort, OutputPort}, EdgeLine, InputId, NodeDisplay, NodeIdMapping, NodeTrait, OutputId
     },
 };
 
@@ -44,18 +42,24 @@ pub fn add_edge(
     q_input_ports: Query<(Entity, &GlobalTransform, &InputPort)>,
     q_output_ports: Query<(Entity, &GlobalTransform, &OutputPort)>,
     mut ev_process_pipeline: EventWriter<RequestProcessPipeline>,
+    node_id_map: Res<NodeIdMapping>,
 ) {
     let mut pipeline = q_pipeline.single_mut();
 
     let event = match trigger.event() {
         AddEdgeEvent::FromNodes(ev) => ev,
         AddEdgeEvent::FromSerialized(ev) => {
-            let (from_node_display, _) = q_nodes
-                .get(ev.edge.from_node)
-                .expect("Forgot to assign Edge's from_node to an Entity from this world.");
-            let (to_node_display, _) = q_nodes
-                .get(ev.edge.to_node)
-                .expect("Forgot to assign Edge's from_node to an Entity from this world.");
+            let ((from_node_display, _), (to_node_display, _)) = match (
+                node_id_map.0.get(&ev.edge.from_node_id).and_then(|&entity| q_nodes.get(entity).ok()),
+                node_id_map.0.get(&ev.edge.to_node_id).and_then(|&entity| q_nodes.get(entity).ok()),
+            ) {
+                (Some(from), Some(to)) => (from, to),
+                _ => {
+                    warn!("Edge creation referenced a node id that did not map to an Entity in this world; it may have been deleted.");
+                    return;
+                }
+            };
+    
             let from_node = pipeline
                 .graph
                 .node_weight(from_node_display.index)
@@ -64,9 +68,8 @@ pub fn add_edge(
                 .graph
                 .node_weight(to_node_display.index)
                 .expect("Forgot to add the serialized nodes to the graph?");
-
+    
             let edge = Edge::from_serializable(&ev.edge, &from_node.kind, &to_node.kind);
-
             &AddNodeEdge {
                 start_node: edge.from_node,
                 start_id: edge.from_field,
@@ -75,6 +78,8 @@ pub fn add_edge(
             }
         }
     };
+
+    println!("tried to make edge {:?}", event);
 
     let (start_node, start_node_children) = q_nodes.get(event.start_node).unwrap();
     let (end_node, end_node_children) = q_nodes.get(event.end_node).unwrap();
