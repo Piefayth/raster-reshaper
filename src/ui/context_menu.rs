@@ -161,6 +161,24 @@ impl ContextMenu {
                             spawn_kind: RequestSpawnNodeKind::Color,
                         }),
                     );
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Shape Node",
+                        font.clone(),
+                        AddNodeEvent::FromKind(AddNodeKind {
+                            position: cursor_world_pos,
+                            spawn_kind: RequestSpawnNodeKind::Shape,
+                        }),
+                    );
+                    ContextMenuEntry::spawn(
+                        child_builder,
+                        "Blend Node",
+                        font.clone(),
+                        AddNodeEvent::FromKind(AddNodeKind {
+                            position: cursor_world_pos,
+                            spawn_kind: RequestSpawnNodeKind::Blend,
+                        }),
+                    );
                 });
             }
             UIContext::Inspector => {

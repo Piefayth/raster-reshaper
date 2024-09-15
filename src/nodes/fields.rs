@@ -4,6 +4,8 @@ use bevy::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::kinds::shape::Shape;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Field {
     U32(u32),
@@ -12,6 +14,7 @@ pub enum Field {
     LinearRgba(LinearRgba),
     Extent3d(Extent3d),
     TextureFormat(TextureFormat),
+    Shape(Shape),
 
      // we never serialize images since they can't be manually input, always from an edge
     Image(#[serde(serialize_with = "serialize_none_image", deserialize_with = "deserialize_none_image")]Option<Image>),
@@ -71,6 +74,11 @@ impl From<TextureFormat> for Field {
 impl From<Option<Image>> for Field {
     fn from(value: Option<Image>) -> Self {
         Field::Image(value)
+    }
+}
+impl From<Shape> for Field {
+    fn from(value: Shape) -> Self {
+        Field::Shape(value)
     }
 }
 
@@ -185,6 +193,18 @@ impl TryFrom<Field> for LinearRgba {
     }
 }
 
+impl TryFrom<Field> for Shape {
+    type Error = String;
+
+    fn try_from(value: Field) -> Result<Self, Self::Error> {
+        if let Field::Shape(v) = value {
+            Ok(v)
+        } else {
+            Err(format!("Cannot convert {:?} to Shape", value))
+        }
+    }
+}
+
 
 pub fn can_convert_field(from: &Field, to: &Field) -> bool {
     match to {
@@ -195,5 +215,7 @@ pub fn can_convert_field(from: &Field, to: &Field) -> bool {
         Field::Extent3d(_) => Extent3d::try_from(from.clone()).is_ok(),
         Field::TextureFormat(_) => TextureFormat::try_from(from.clone()).is_ok(),
         Field::Image(_) => Option::<Image>::try_from(from.clone()).is_ok(),
+        Field::Shape(_) => Shape::try_from(from.clone()).is_ok(),
+        
     }
 }

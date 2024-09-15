@@ -17,8 +17,8 @@ use super::{
 };
 use bevy::{
     color::palettes::{
-        css::{ORANGE, PINK, TEAL, YELLOW},
-        tailwind::{GRAY_400, RED_700},
+        css::{GREEN, ORANGE, PINK, TEAL, YELLOW},
+        tailwind::{GRAY_400, GREEN_400, RED_700},
     }, prelude::*, scene::ron::de, sprite::{Anchor, MaterialMesh2dBundle}, ui::Direction as UIDirection, utils::{HashMap, HashSet}, window::PrimaryWindow
 };
 use bevy_mod_picking::{
@@ -625,6 +625,7 @@ pub fn port_color(field: &Field) -> LinearRgba {
         Field::Extent3d(_) => TEAL.into(),
         Field::TextureFormat(_) => RED_700.into(),
         Field::Image(_) => GRAY_400.into(),
+        Field::Shape(_) => GREEN_400.into(),
     }
 }
 

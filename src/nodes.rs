@@ -28,7 +28,7 @@ use bevy_mod_picking::{
     prelude::PointerButton,
 };
 use fields::{Field, FieldMeta};
-use kinds::{color::{ColorNode, SerializableColorNode}, example::SerializableExampleNode};
+use kinds::{blend::{BlendNode, SerializableBlendNode}, color::{ColorNode, SerializableColorNode}, example::SerializableExampleNode, shape::{SerializableShapeNode, ShapeNode}};
 use kinds::example::ExampleNode;
 use macros::macros::declare_node_enum_and_impl_trait;
 use petgraph::{graph::NodeIndex, visit::IntoNodeReferences};
@@ -118,6 +118,8 @@ declare_node_enum_and_impl_trait! {
     pub enum GraphNodeKind {
         Example(ExampleNode),
         Color(ColorNode),
+        Shape(ShapeNode),
+        Blend(BlendNode),
     }
 }
 
@@ -125,12 +127,16 @@ declare_node_enum_and_impl_trait! {
 pub enum RequestSpawnNodeKind {
     Example,
     Color,
+    Shape,
+    Blend,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum SerializableGraphNodeKind {
     Example(SerializableExampleNode),
     Color(SerializableColorNode),
+    Shape(SerializableShapeNode),
+    Blend(SerializableBlendNode)
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -145,6 +151,8 @@ impl SerializableGraphNode {
         match &self.kind {
             SerializableGraphNodeKind::Example(n) => n.entity,
             SerializableGraphNodeKind::Color(n) => n.entity,
+            SerializableGraphNodeKind::Shape(n) => n.entity,
+            SerializableGraphNodeKind::Blend(n) => n.entity,
         }
     }
 }
@@ -192,7 +200,17 @@ fn update_nodes(
                     }
                     GraphNodeKind::Color(color_node) => {
                         material.texture_background_color = color_node.out_color;
+                    },
+                    GraphNodeKind::Shape(shape_node) => {
+                        if let Some(image) = &shape_node.output_image {
+                            *old_image = image.clone();
+                        }
                     }
+                    GraphNodeKind::Blend(blend_node) =>  {
+                        if let Some(image) = &blend_node.output_image {
+                            *old_image = image.clone();
+                        }
+                    },
                 }
             }
             Err(_) => {
@@ -552,5 +570,8 @@ pub fn node_kind_name(kind: &GraphNodeKind) -> &'static str {
     match kind {
         GraphNodeKind::Example(_) => "Example",
         GraphNodeKind::Color(_) => "Color",
+        GraphNodeKind::Shape(_) => "Shape",
+        GraphNodeKind::Blend(_) => "Blend",
+        
     }
 }
