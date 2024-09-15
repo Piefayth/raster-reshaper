@@ -318,7 +318,6 @@ fn file_load_complete(
 
                 for edge in &save_file.edges {
                     if let (Some(&new_start), Some(&new_end)) = (
-                        // do we actually need this check?
                         uuid_map.get(&edge.from_node_id),
                         uuid_map.get(&edge.to_node_id),
                     ) {
@@ -427,10 +426,6 @@ fn handle_paste_request(
     node_id_map: Res<NodeIdMapping>,
 ) {
     let id_to_node = &node_id_map.0;
-    let node_to_id: HashMap<Entity, Uuid> = id_to_node
-        .iter()
-        .map(|(uuid, entity)| (*entity, *uuid))
-        .collect();
     
     if let Some(serialized) = &clipboard.0 {
         if let Ok(copy_data) = rmp_serde::from_slice::<CopyData>(serialized) {
@@ -472,16 +467,6 @@ fn handle_paste_request(
                 }));
             }
 
-            // ok so when we paste node A from our world that connects to node B
-            // we want to make a new node C, that also connects to B...
-            // but to create the C-B edge we need to know the guid up front
-            // the edges contain the data for C-B, but it will LOOK like the A-B edge because the guid was the same. 
-                // we can tell its not the same because the other guid was NOT IN THE PASTE
-            // so for each edge
-                // either
-                // it both sides were in the pasted data
-                // or only one side was
-                // the one that was NOT in the paste MIGHT not exist in the world
 
             for edge in &copy_data.edges {
                 match ((pasted_guid_map.get(&edge.from_node_id), pasted_guid_map.get(&edge.to_node_id))) {
@@ -489,7 +474,6 @@ fn handle_paste_request(
                         panic!("Requested paste of an edge that is not valid in this world or the copied world.")
                     },
                     (None, Some(_)) => {
-                        println!("HERE");
                         if id_to_node.contains_key(&edge.from_node_id) {    // if the guid not in the paste exists in this world...
                             commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                                 edge: SerializableEdge {
@@ -499,8 +483,12 @@ fn handle_paste_request(
                             }));
                         }
                     },
-                    (Some(_), None) => {    // if the guid not int he paste exists in this world
+                    (Some(_), None) => {    // if the "from" node exists in the paste, but not the "to" node, we reuse the "to" node that exists in this world (if it does)
                         if id_to_node.contains_key(&edge.to_node_id) {
+                            // FROM the new pasted node
+                            // TO maybe a node that exists in the world
+                                // Which we check in the if statement above
+
                             commands.trigger(AddEdgeEvent::FromSerialized(AddSerializedEdge {
                                 edge: SerializableEdge {
                                     from_node_id: *pasted_guid_map.get(&edge.from_node_id).unwrap(),

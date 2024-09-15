@@ -65,6 +65,9 @@ pub fn remove_node(
         }
 
         // keep the entity reference stable (for undo/redo) by not despawning
+        // but nooo we both need the id and fuck ourselves by saving the id maybe?
+        // because you can copy a node, delete it, then paste it
+        // which tries to make connections to deleted nodes
         commands
             .entity(trigger.event().node_entity)
             .remove::<NodeDisplay>()
